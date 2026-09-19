@@ -143,8 +143,17 @@ data class DayTimes(
     /** Maghrib runs until Isha begins. */
     val maghribEnd get() = isha
 
-    /** Isha runs until Subh Sadiq, i.e. the next day's Fajr. */
-    val ishaEnd get() = nextFajr
+    /**
+     * Isha runs until Subh Sadiq -- one minute before the next Fajr.
+     *
+     * The minute is not cosmetic. Isha's window closes at the NEXT day's Subh
+     * Sadiq, which drifts a minute or so from today's as nights lengthen or
+     * shorten. Using the raw next-day Fajr made a single day's card read
+     * "Isha until 4:37 AM" directly above "Fajr 4:36 AM", which looks broken
+     * and is unusable as a qaza deadline. Ending one minute earlier keeps the
+     * window strictly before Fajr on every day of the year.
+     */
+    val ishaEnd get() = nextFajr - 1
 
     /** Iftar is sunset, with a small caution margin. */
     val iftar get() = maghrib + settings.iftarPrecautionMinutes

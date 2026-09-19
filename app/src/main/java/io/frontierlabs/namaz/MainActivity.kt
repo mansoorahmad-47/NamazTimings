@@ -205,7 +205,10 @@ fun TodayScreen(
         writeDone(prefs, today.year, today.monthValue, today.dayOfMonth, done)
     }
 
-    val streak = remember(done) {
+    var showHistory by remember { mutableStateOf(false) }
+    var historyVersion by remember { mutableIntStateOf(0) }
+
+    val streak = remember(done, historyVersion) {
         Tracker.currentStreak(today.year, today.monthValue, today.dayOfMonth) { y, m, d ->
             val set = if (y == today.year && m == today.monthValue && d == today.dayOfMonth)
                 done else readDone(prefs, y, m, d)
@@ -298,7 +301,7 @@ fun TodayScreen(
         Spacer(Modifier.height(14.dp))
 
         // --- streak ----------------------------------------------------------
-        Card(Modifier.fillMaxWidth(),
+        Card(Modifier.fillMaxWidth().clickable { showHistory = true },
             colors = CardDefaults.cardColors(
                 containerColor = if (streak > 0) Color(0x224EC27F) else Color(0x14FFFFFF))) {
             Column(Modifier.padding(16.dp)) {
@@ -317,11 +320,15 @@ fun TodayScreen(
                         fontSize = 13.sp, color = MUTED)
                 }
                 Spacer(Modifier.height(6.dp))
-                Text(
-                    if (Tracker.isDayComplete(done)) "All five prayed today."
-                    else "Complete all five to extend your streak.",
-                    fontSize = 11.5.sp, color = MUTED,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (Tracker.isDayComplete(done)) "All five prayed today."
+                        else "Complete all five to extend your streak.",
+                        Modifier.weight(1f), fontSize = 11.5.sp, color = MUTED,
+                    )
+                    Text("Past days \u203A", fontSize = 12.sp, color = GOLD,
+                        fontWeight = FontWeight.SemiBold)
+                }
             }
         }
 
@@ -422,6 +429,18 @@ fun TodayScreen(
         Spacer(Modifier.height(24.dp))
         Footer()
         Spacer(Modifier.height(40.dp))
+    }
+
+    if (showHistory) {
+        HistoryDialog(
+            prefs = prefs,
+            today = today,
+            onDismiss = { showHistory = false },
+            onChanged = {
+                historyVersion++
+                done = readDone(prefs, today.year, today.monthValue, today.dayOfMonth)
+            },
+        )
     }
 }
 
@@ -814,6 +833,124 @@ fun CompassDial(headingTrue: Float, qiblaBearing: Float, live: Boolean, aligned:
         drawPath(path, color = ring)
         drawCircle(color = ring, radius = 9f, center = c)
     }
+}
+
+
+/**
+ * Past days, so a prayer can be marked once it has actually been made up.
+ *
+ * A qaza prayer is still owed and still prayed. Without this the streak
+ * punishes someone permanently for one late Fajr, which is the opposite of
+ * what a streak is for.
+ */
+@Composable
+fun HistoryDialog(
+    prefs: android.content.SharedPreferences,
+    today: LocalDate,
+    onDismiss: () -> Unit,
+    onChanged: () -> Unit,
+) {
+    var version by remember { mutableIntStateOf(0) }
+    var openDay by remember { mutableStateOf<LocalDate?>(null) }
+    val days = remember { (0 until 60).map { today.minusDays(it.toLong()) } }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        title = { Text("Past days", fontSize = 17.sp) },
+        text = {
+            Column {
+                Text("Tap a day, then tap each prayer you have offered \u2014 " +
+                    "including qaza you have since made up. A day with all five " +
+                    "counts towards your streak.",
+                    fontSize = 12.sp, color = MUTED)
+                Spacer(Modifier.height(10.dp))
+
+                LazyColumn(Modifier.height(370.dp)) {
+                    items(days) { d ->
+                        // `version` is read here so every write recomposes the row.
+                        val doneSet = run {
+                            version
+                            readDone(prefs, d.year, d.monthValue, d.dayOfMonth)
+                        }
+                        val count = Tracker.completedCount(doneSet)
+                        val isToday = d == today
+                        val isOpen = openDay == d
+                        val dayName = d.dayOfWeek.name.take(3).lowercase()
+                            .replaceFirstChar { it.uppercase() }
+
+                        Column(
+                            Modifier.fillMaxWidth()
+                                .clickable { openDay = if (isOpen) null else d }
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = 11.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "$dayName ${d.dayOfMonth} " +
+                                        MONTHS[d.monthValue - 1].take(3) +
+                                        (if (isToday) "  \u00B7 today" else ""),
+                                    Modifier.weight(1f),
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isToday) FontWeight.Bold
+                                                 else FontWeight.Normal,
+                                    color = if (isToday) GOLD else Color.Unspecified,
+                                )
+                                Text(
+                                    "$count/5", fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = when {
+                                        count == 5 -> GREEN
+                                        count == 0 -> RED
+                                        else -> GOLD
+                                    },
+                                )
+                                Text(
+                                    "  \u203A",
+                                    Modifier.rotate(if (isOpen) 90f else 0f),
+                                    fontSize = 15.sp, color = MUTED,
+                                )
+                            }
+
+                            if (isOpen) {
+                                Column(Modifier.padding(bottom = 10.dp)) {
+                                    Tracker.FARD.forEach { name ->
+                                        val on = doneSet.contains(name)
+                                        Row(
+                                            Modifier.fillMaxWidth()
+                                                .clickable {
+                                                    val next =
+                                                        if (on) doneSet - name
+                                                        else doneSet + name
+                                                    writeDone(prefs, d.year, d.monthValue,
+                                                        d.dayOfMonth, next)
+                                                    version++
+                                                    onChanged()
+                                                }
+                                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Text(
+                                                if (on) "\u2713" else "\u25CB",
+                                                Modifier.width(28.dp),
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (on) GREEN else FAINT2,
+                                            )
+                                            Text(name, fontSize = 14.sp,
+                                                color = if (on) GREEN else Color.Unspecified)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = FAINT)
+                    }
+                }
+            }
+        },
+    )
 }
 
 @Composable
