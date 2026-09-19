@@ -11,6 +11,17 @@ fun check(name: String, cond: Boolean, detail: Any? = "") {
 
 fun near(a: Double, b: Double, tol: Double) = abs(a - b) <= tol
 
+/** Whole days from [y2]-[m2]-[d2] back to the reference date, 0 being the reference. */
+fun daysBetween(ry: Int, rm: Int, rd: Int, y2: Int, m2: Int, d2: Int): Int {
+    var y = ry; var m = rm; var d = rd
+    for (i in 0..800) {
+        if (y == y2 && m == m2 && d == d2) return i
+        val p = PrayerTimes.addDays(y, m, d, -1)
+        y = p.first; m = p.second; d = p.third
+    }
+    return -1
+}
+
 fun main() {
     val isb = Cities.byName("Islamabad")!!
     val khi = Cities.byName("Karachi")!!
@@ -108,9 +119,48 @@ fun main() {
     check("Zuhr ends at Asr", w.zuhrEnd == w.asr)
     check("Asr ends at Maghrib", w.asrEnd == w.maghrib)
     check("Maghrib ends at Isha", w.maghribEnd == w.isha)
-    check("Isha ends at next Fajr", w.ishaEnd == w.nextFajr)
+    check("Isha ends one minute before the next Fajr",
+        w.ishaEnd == w.nextFajr - 1, "${w.ishaEnd.format24()} vs ${w.nextFajr.format24()}")
     check("next Fajr is close to today's", abs(w.nextFajr.minutes - w.fajr.minutes) <= 5,
         "${w.fajr.format24()} vs ${w.nextFajr.format24()}")
+
+
+    println("\n-- Isha must never end after Fajr begins --")
+    // The reported bug: Peshawar showed Isha ending 4:37 AM with Fajr at
+    // 4:36 AM. Checked across every city and every day of a year.
+    var ishaOk = true
+    var ishaDetail = ""
+    for (c in listOf(pew, khi, lhr, isb, Cities.byName("Gilgit")!!,
+                     Cities.byName("Gwadar")!!)) {
+        for (mth in 1..12) {
+            for (dy in listOf(1, 10, 20, 28)) {
+                val d = PrayerTimes.forDate(2026, mth, dy, c)
+                // strictly before the next Fajr
+                if (d.ishaEnd.minutes >= d.nextFajr.minutes) {
+                    ishaOk = false
+                    ishaDetail = "${c.name} $dy/$mth: end ${d.ishaEnd.format24()} " +
+                        "vs next Fajr ${d.nextFajr.format24()}"
+                }
+                // and never later than the Fajr shown on the same card
+                if (d.ishaEnd.minutes > d.fajr.minutes) {
+                    ishaOk = false
+                    ishaDetail = "${c.name} $dy/$mth: end ${d.ishaEnd.format24()} " +
+                        "after same-day Fajr ${d.fajr.format24()}"
+                }
+            }
+        }
+    }
+    check("Isha end is before both the next Fajr and the displayed Fajr, " +
+        "all cities all year", ishaOk, ishaDetail)
+
+    val pw = PrayerTimes.forDate(2026, 9, 19, pew)
+    check("Peshawar: Isha end is not after Fajr",
+        pw.ishaEnd.minutes <= pw.fajr.minutes,
+        "Isha until ${pw.ishaEnd.format12()}, Fajr ${pw.fajr.format12()}")
+    check("Isha is still open just before its end",
+        Tracker.inWindow(Clock(pw.ishaEnd.minutes - 1), pw.isha, pw.ishaEnd))
+    check("Isha is closed at Fajr",
+        !Tracker.inWindow(pw.fajr, pw.isha, pw.ishaEnd))
 
     println("\n-- Sehri and Iftar --")
     val r = PrayerTimes.forDate(2027, 2, 20, khi)   // around Ramadan
@@ -132,6 +182,299 @@ fun main() {
         "$summerDay vs $winterDay")
     check("Islamabad summer day ~14h", summerDay in 820..870, summerDay)
     check("Islamabad winter day ~10h", winterDay in 590..640, winterDay)
+
+
+    println("\n-- nawafil and night times --")
+    val n = PrayerTimes.forDate(2026, 9, 19, isb)
+    check("night length is 10-14 hours", n.nightLength in 600..840, n.nightLength)
+    check("Islamic midnight sits between Maghrib and Fajr",
+        n.islamicMidnight.minutes > n.maghrib.minutes || n.islamicMidnight.minutes < n.fajr.minutes,
+        n.islamicMidnight.format24())
+    check("last third is after Islamic midnight",
+        ((n.lastThirdOfNight.minutes - n.maghrib.minutes + 1440) % 1440) >
+        ((n.islamicMidnight.minutes - n.maghrib.minutes + 1440) % 1440))
+    check("Tahajjud ends at Fajr", n.tahajjudEnd == n.fajr)
+    check("Sehri starts at Islamic midnight", n.sehriStart == n.islamicMidnight)
+    check("Ishraq is 20 min after sunrise", n.ishraqStart.minutes - n.sunrise.minutes == 20)
+    check("Ishraq ends before Chasht begins or at it",
+        n.ishraqEnd.minutes <= n.chashtStart.minutes)
+    check("Chasht ends before Zawal", n.chashtEnd.minutes < n.zawal.minutes,
+        "${n.chashtEnd.format24()} vs ${n.zawal.format24()}")
+    check("Zawal is just before Zuhr", n.zuhr.minutes - n.zawal.minutes == 1)
+
+    println("\n-- full day table --")
+    val fd = n.fullDay()
+    check("15 rows", fd.size == 15, fd.size)
+    check("every requested item present",
+        listOf("Sehri starts", "Sehri ends", "Tahajjud", "Fajr", "Ishraq",
+               "Chasht (Duha)", "Zuhr", "Asr", "Iftar", "Maghrib", "Isha",
+               "Avoid prayer", "Sunrise")
+            .all { lbl -> fd.any { it.label == lbl } },
+        fd.map { it.label })
+    check("daytime rows run in order",
+        fd.filter { it.label in listOf("Fajr","Sunrise","Zuhr","Asr","Maghrib","Isha") }
+          .map { it.start.minutes }.let { it == it.sorted() },
+        fd.filter { it.label in listOf("Fajr","Sunrise","Zuhr","Asr","Maghrib","Isha") }
+          .map { it.start.format24() })
+    check("single-moment rows have no end",
+        fd.filter { it.label in listOf("Sunrise","Iftar","Sehri ends","Sehri starts") }
+          .all { it.end == null })
+
+    println("\n-- every month selectable --")
+    var allMonthsOk = true
+    for (mth in 1..12) {
+        val rows = PrayerTimes.forMonth(2026, mth, isb)
+        if (rows.size != PrayerTimes.daysInMonth(2026, mth)) allMonthsOk = false
+        if (rows.any { it.second.fullDay().size != 15 }) allMonthsOk = false
+    }
+    check("months 1-12 all produce full tables", allMonthsOk)
+
+
+    println("\n-- Qibla bearing --")
+    // From Pakistan the Kaaba is west and a little south, so every city must
+    // point into the western half of the compass.
+    var allWest = true
+    var westDetail = ""
+    for (c in Cities.all) {
+        val b = Qibla.bearing(c)
+        if (b < 230.0 || b > 290.0) { allWest = false; westDetail = "${c.name} -> $b" }
+    }
+    check("every Pakistani city points WSW-to-W (230-290 degrees)", allWest, westDetail)
+
+    // Standing at the Kaaba's longitude but further north, the Qibla is due south.
+    check("due south from directly north of the Kaaba",
+        abs(Qibla.bearing(40.0, Qibla.KAABA_LON) - 180.0) < 0.01,
+        Qibla.bearing(40.0, Qibla.KAABA_LON))
+    // Directly south of it, the Qibla is due north.
+    check("due north from directly south of the Kaaba",
+        abs(Qibla.bearing(0.0, Qibla.KAABA_LON) - 0.0) < 0.01,
+        Qibla.bearing(0.0, Qibla.KAABA_LON))
+    // From the SAME latitude, due east, the great circle starts slightly
+    // north of due west -- great circles bend poleward. A flat-map answer
+    // would say exactly 270, and would be wrong. Verified independently.
+    val sameLat = Qibla.bearing(Qibla.KAABA_LAT, Qibla.KAABA_LON + 20.0)
+    check("great circle from the same latitude starts north of due west",
+        sameLat > 270.0 && sameLat < 280.0, sameLat)
+
+    // Known published values, to about a degree.
+    val bKhi = Qibla.bearing(khi)
+    val bLhr = Qibla.bearing(lhr)
+    val bIsb = Qibla.bearing(isb)
+    check("Karachi Qibla ~267 degrees", abs(bKhi - 267.0) < 2.5, bKhi)
+    check("Lahore Qibla ~260 degrees", abs(bLhr - 260.0) < 2.5, bLhr)
+    check("Islamabad Qibla ~255 degrees", abs(bIsb - 255.0) < 2.5, bIsb)
+    // Further north-east means turning further south to face Makkah.
+    check("Islamabad bearing is further south than Karachi's", bIsb < bKhi,
+        "$bIsb vs $bKhi")
+
+    println("\n-- distance to the Kaaba --")
+    val dKhi = Qibla.distanceKm(khi)
+    val dIsb = Qibla.distanceKm(isb)
+    check("Karachi ~2800 km from Makkah", abs(dKhi - 2800.0) < 25.0, dKhi)
+    check("Islamabad ~3528 km from Makkah", abs(dIsb - 3528.0) < 25.0, dIsb)
+    check("Islamabad is further than Karachi", dIsb > dKhi)
+    check("zero distance at the Kaaba itself",
+        Qibla.distanceKm(Qibla.KAABA_LAT, Qibla.KAABA_LON) < 0.001)
+
+    println("\n-- compass points --")
+    check("0 is N", Qibla.compassPoint(0.0) == "N")
+    check("90 is E", Qibla.compassPoint(90.0) == "E")
+    check("270 is W", Qibla.compassPoint(270.0) == "W")
+    check("247.5 is WSW", Qibla.compassPoint(247.5) == "WSW", Qibla.compassPoint(247.5))
+    check("359 wraps back to N", Qibla.compassPoint(359.0) == "N", Qibla.compassPoint(359.0))
+    check("Karachi reads as W or WSW",
+        Qibla.compassPoint(bKhi) in listOf("W", "WSW"), Qibla.compassPoint(bKhi))
+
+    println("\n-- which way to turn --")
+    check("facing the Qibla means no turn", Qibla.turnFrom(255.0, 255.0) == 0.0)
+    check("turn right when the Qibla is clockwise",
+        Qibla.turnFrom(250.0, 255.0) == 5.0, Qibla.turnFrom(250.0, 255.0))
+    check("turn left when the Qibla is anticlockwise",
+        Qibla.turnFrom(260.0, 255.0) == -5.0, Qibla.turnFrom(260.0, 255.0))
+    // The short way round: facing 10 degrees with the Qibla at 350 is a 20
+    // degree turn left, not 340 to the right.
+    check("takes the short way round the dial",
+        Qibla.turnFrom(10.0, 350.0) == -20.0, Qibla.turnFrom(10.0, 350.0))
+    check("never asks for more than a half turn",
+        (0..359).all { abs(Qibla.turnFrom(it.toDouble(), 255.0)) <= 180.0 })
+
+
+    println("\n-- prayer windows: the Isha midnight wrap --")
+    val td = PrayerTimes.forDate(2026, 9, 19, isb)   // Isha 7:33 PM, next Fajr 4:31 AM
+    check("inside Isha at 9 PM",
+        Tracker.inWindow(Clock(21 * 60), td.isha, td.ishaEnd))
+    // The bug this guards: a naive start<=now<end marks Isha missed at midnight,
+    // which would break a user's streak every single night.
+    check("still inside Isha at 1 AM",
+        Tracker.inWindow(Clock(60), td.isha, td.ishaEnd))
+    check("no longer inside Isha at 6 AM",
+        !Tracker.inWindow(Clock(6 * 60), td.isha, td.ishaEnd))
+    check("not inside Isha at noon",
+        !Tracker.inWindow(Clock(12 * 60), td.isha, td.ishaEnd))
+    check("inside Zuhr just after it starts",
+        Tracker.inWindow(Clock(td.zuhr.minutes + 5), td.zuhr, td.zuhrEnd))
+    check("not inside Zuhr once Asr begins",
+        !Tracker.inWindow(Clock(td.asr.minutes), td.zuhr, td.zuhrEnd))
+
+    println("\n-- prayer status --")
+    check("before its time: upcoming",
+        Tracker.statusOf(Clock(td.fajr.minutes - 30), td.fajr, td.fajrEnd, false)
+            == PrayerStatus.UPCOMING)
+    check("during its window: due",
+        Tracker.statusOf(Clock(td.fajr.minutes + 10), td.fajr, td.fajrEnd, false)
+            == PrayerStatus.DUE)
+    check("after its window, unmarked: missed",
+        Tracker.statusOf(Clock(td.sunrise.minutes + 30), td.fajr, td.fajrEnd, false)
+            == PrayerStatus.MISSED)
+    check("marked stays done even after the window",
+        Tracker.statusOf(Clock(td.sunrise.minutes + 30), td.fajr, td.fajrEnd, true)
+            == PrayerStatus.DONE)
+    check("marked is done even before its time",
+        Tracker.statusOf(Clock(0), td.fajr, td.fajrEnd, true) == PrayerStatus.DONE)
+    check("Isha is never missed at 1 AM on its own day",
+        Tracker.statusOf(Clock(60), td.isha, td.ishaEnd, false) != PrayerStatus.MISSED,
+        Tracker.statusOf(Clock(60), td.isha, td.ishaEnd, false))
+
+    println("\n-- current prayer on the front page --")
+    val cur = Tracker.currentPrayer(Clock(td.asr.minutes + 20), td)
+    check("mid-afternoon the current prayer is Asr", cur?.first == "Asr", cur?.first)
+    check("its end is Maghrib", cur?.third == td.maghrib)
+    check("countdown to qaza is positive",
+        Tracker.minutesUntil(Clock(td.asr.minutes + 20), td.maghrib) > 0)
+    check("nothing is due between sunrise and Zuhr",
+        Tracker.currentPrayer(Clock(td.sunrise.minutes + 60), td) == null,
+        Tracker.currentPrayer(Clock(td.sunrise.minutes + 60), td)?.first)
+    check("Isha is current at 11 PM",
+        Tracker.currentPrayer(Clock(23 * 60), td)?.first == "Isha")
+    check("Isha is still current at 2 AM",
+        Tracker.currentPrayer(Clock(2 * 60), td)?.first == "Isha",
+        Tracker.currentPrayer(Clock(2 * 60), td)?.first)
+    check("countdown wraps correctly across midnight",
+        Tracker.minutesUntil(Clock(23 * 60), Clock(60)) == 120,
+        Tracker.minutesUntil(Clock(23 * 60), Clock(60)))
+
+    println("\n-- completion --")
+    check("empty is zero", Tracker.completedCount(emptySet()) == 0)
+    check("three marked", Tracker.completedCount(setOf("Fajr", "Asr", "Isha")) == 3)
+    check("all five is complete", Tracker.isDayComplete(Tracker.FARD.toSet()))
+    check("four is not complete", !Tracker.isDayComplete(setOf("Fajr","Zuhr","Asr","Isha")))
+    check("unknown names do not count",
+        Tracker.completedCount(setOf("Tahajjud", "Ishraq")) == 0)
+
+    println("\n-- streaks --")
+    // Every day complete.
+    check("unbroken history gives a long streak",
+        Tracker.currentStreak(2026, 9, 19) { _, _, _ -> true } > 100)
+    // Nothing ever complete.
+    check("no history gives zero",
+        Tracker.currentStreak(2026, 9, 19) { _, _, _ -> false } == 0)
+    // Today incomplete but the previous three days complete: streak is 3, and
+    // an unfinished today must NOT break it.
+    val done3 = setOf(Triple(2026, 9, 18), Triple(2026, 9, 17), Triple(2026, 9, 16))
+    check("an unfinished today does not break the streak",
+        Tracker.currentStreak(2026, 9, 19) { y, m, d -> Triple(y, m, d) in done3 } == 3,
+        Tracker.currentStreak(2026, 9, 19) { y, m, d -> Triple(y, m, d) in done3 })
+    // Today complete too: streak is 4.
+    val done4 = done3 + Triple(2026, 9, 19)
+    check("finishing today extends it",
+        Tracker.currentStreak(2026, 9, 19) { y, m, d -> Triple(y, m, d) in done4 } == 4)
+    // A gap two days back ends the chain there.
+    val gapDays = setOf(Triple(2026, 9, 18), Triple(2026, 9, 16), Triple(2026, 9, 15))
+    check("a missed day ends the streak",
+        Tracker.currentStreak(2026, 9, 19) { y, m, d -> Triple(y, m, d) in gapDays } == 1,
+        Tracker.currentStreak(2026, 9, 19) { y, m, d -> Triple(y, m, d) in gapDays })
+    // Streaks must count back across a month boundary.
+    val across = setOf(Triple(2026, 9, 1), Triple(2026, 8, 31), Triple(2026, 8, 30))
+    check("streak counts back over a month boundary",
+        Tracker.currentStreak(2026, 9, 1) { y, m, d -> Triple(y, m, d) in across } == 3,
+        Tracker.currentStreak(2026, 9, 1) { y, m, d -> Triple(y, m, d) in across })
+    check("best streak finds the longest run",
+        Tracker.bestStreak(2026, 9, 19, 10) { y, m, d -> Triple(y, m, d) in gapDays } == 2,
+        Tracker.bestStreak(2026, 9, 19, 10) { y, m, d -> Triple(y, m, d) in gapDays })
+
+    println("\n-- qaza notes removed from the day table --")
+    check("no prayer row repeats the end time as a note",
+        td.fullDay().filter { it.label in Tracker.FARD }.all { it.note == null },
+        td.fullDay().filter { it.label in Tracker.FARD }.map { it.note })
+    check("useful notes are kept",
+        td.fullDay().first { it.label == "Sehri starts" }.note == "Islamic midnight")
+
+
+    println("\n-- translations --")
+    val en = Strings.fields(Strings.EN)
+    val ur = Strings.fields(Strings.UR)
+    check("same number of strings in both languages", en.size == ur.size,
+        "${en.size} vs ${ur.size}")
+    check("no English string is blank", en.none { it.isBlank() })
+    check("no Urdu string is blank", ur.none { it.isBlank() })
+    // The point of the data class: a forgotten translation shows up as an
+    // identical English string, so almost nothing should match.
+    val untranslated = en.indices.filter { en[it] == ur[it] }
+    check("every string is actually translated", untranslated.isEmpty(),
+        untranslated.map { en[it] })
+    check("Urdu strings use Arabic script",
+        ur.count { t -> t.any { it.code in 0x0600..0x06FF } } >= ur.size - 2,
+        ur.filterNot { t -> t.any { it.code in 0x0600..0x06FF } })
+
+    check("Urdu is marked right-to-left", Lang.UR.rtl && !Lang.EN.rtl)
+    check("prayer names translate",
+        Strings.prayerName(Lang.UR, "Fajr") == "فجر" &&
+        Strings.prayerName(Lang.UR, "Maghrib") == "مغرب")
+    check("English prayer names pass through",
+        Strings.prayerName(Lang.EN, "Fajr") == "Fajr")
+    check("unknown labels fall back rather than vanish",
+        Strings.prayerName(Lang.UR, "Something") == "Something")
+    check("months translate", Strings.monthName(Lang.UR, 1) == "جنوری" &&
+        Strings.monthName(Lang.EN, 12) == "December")
+    check("all 66 cities have an Urdu name",
+        Cities.all.all { Strings.CITY_UR.containsKey(it.name) },
+        Cities.all.filterNot { Strings.CITY_UR.containsKey(it.name) }.map { it.name })
+    check("every province translates",
+        Cities.provinces.all { Strings.provinceName(Lang.UR, it) != it },
+        Cities.provinces.filter { Strings.provinceName(Lang.UR, it) == it })
+    check("city lookup falls back for an unknown city",
+        Strings.cityName(Lang.UR, "Nowhere") == "Nowhere")
+
+    println("\n-- update check --")
+    val good = """{"latestVersionCode": 5, "latestVersionName": "1.4",
+        "minSupportedVersionCode": 3,
+        "downloadUrl": "https://github.com/u/r/releases/download/v1.4/app.apk",
+        "notes": "Adds Urdu"}"""
+    val info = UpdateCheck.parse(good)
+    check("parses the version", info?.latestVersionCode == 5, info?.latestVersionCode)
+    check("parses the floor", info?.minSupportedVersionCode == 3)
+    check("parses the url", info?.downloadUrl?.endsWith("app.apk") == true)
+    check("parses the notes", info?.notes == "Adds Urdu")
+
+    check("below the floor is a forced update",
+        UpdateCheck.check(2, good).action == UpdateAction.REQUIRED)
+    check("at the floor but behind latest is optional",
+        UpdateCheck.check(3, good).action == UpdateAction.OPTIONAL)
+    check("one behind latest is optional",
+        UpdateCheck.check(4, good).action == UpdateAction.OPTIONAL)
+    check("current version needs nothing",
+        UpdateCheck.check(5, good).action == UpdateAction.NONE)
+    check("a newer build than published needs nothing",
+        UpdateCheck.check(9, good).action == UpdateAction.NONE)
+
+    // Failing open is the rule that matters most: a prayer app must never be
+    // bricked by a network problem or a bad file.
+    check("no network (null) never blocks",
+        UpdateCheck.check(1, null).action == UpdateAction.NONE)
+    check("empty response never blocks",
+        UpdateCheck.check(1, "").action == UpdateAction.NONE)
+    check("garbage never blocks",
+        UpdateCheck.check(1, "<html>404 not found</html>").action == UpdateAction.NONE)
+    check("truncated json never blocks",
+        UpdateCheck.check(1, """{"latestVersionCode": 5""").action == UpdateAction.NONE)
+    check("missing download url never blocks",
+        UpdateCheck.check(1, """{"latestVersionCode": 9}""").action == UpdateAction.NONE)
+    check("plain http url is rejected",
+        UpdateCheck.parse("""{"latestVersionCode":9,"downloadUrl":"http://x.com/a.apk"}""")
+            == null)
+    check("absent floor means nothing is forced",
+        UpdateCheck.check(1, """{"latestVersionCode": 9,
+            "downloadUrl": "https://x.com/a.apk"}""").action == UpdateAction.OPTIONAL)
 
     println("\n-- date arithmetic --")
     check("month rollover", PrayerTimes.addDays(2026, 1, 31, 1) == Triple(2026, 2, 1))
@@ -188,6 +531,207 @@ fun main() {
     check("all on UTC+5", Cities.all.all { it.timezone == 5.0 })
     check("search finds Swat", Cities.search("swat").isNotEmpty())
     check("search by province", Cities.search("KP").size >= 10, Cities.search("KP").size)
+
+
+    println("\n-- translations: nothing left behind --")
+    run {
+        // fields() is hand-written, so it silently rots when a string is added
+        // to Str and not to the list. Java reflection counts the real backing
+        // fields without needing kotlin-reflect on the classpath.
+        val declared = Str::class.java.declaredFields.count { !it.isSynthetic }
+        check("fields() lists every string in Str",
+            Strings.fields(Strings.EN).size == declared,
+            "listed ${Strings.fields(Strings.EN).size}, declared $declared")
+        check("no English string leaked into Urdu",
+            Strings.fields(Strings.EN).zip(Strings.fields(Strings.UR))
+                .count { (e, u) -> e == u } == 0,
+            Strings.fields(Strings.EN).zip(Strings.fields(Strings.UR))
+                .filter { (e, u) -> e == u }.map { it.first })
+        check("seven weekday names in both languages",
+            (0..6).map { Strings.weekdayShort(Lang.EN, it) }.toSet().size == 7 &&
+                (0..6).map { Strings.weekdayShort(Lang.UR, it) }.toSet().size == 7)
+        check("weekdays are translated",
+            (0..6).none {
+                Strings.weekdayShort(Lang.EN, it) == Strings.weekdayShort(Lang.UR, it)
+            })
+    }
+
+    println("\n-- alerts: what fires and when --")
+    run {
+        val t = PrayerTimes.forDate(2026, 9, 19, pew)
+        val a = Alerts.forDay(t)
+
+        check("five starts and five warnings", a.size == 10, a.size)
+        check("all sorted by time", a.map { it.at } == a.map { it.at }.sorted())
+
+        val starts = a.filter { it.kind == AlertKind.PRAYER_START }
+        check("a start for every fard prayer",
+            starts.map { it.prayer }.toSet() == Tracker.FARD.toSet(),
+            starts.map { it.prayer })
+        check("each start is at the azan time",
+            t.list().all { (name, s, _) ->
+                starts.first { it.prayer == name }.at == s.minutes
+            })
+
+        val warns = a.filter { it.kind == AlertKind.QAZA_WARNING }
+        check("a warning for every fard prayer",
+            warns.map { it.prayer }.toSet() == Tracker.FARD.toSet(),
+            warns.map { it.prayer })
+        check("each warning is exactly 15 minutes before the window closes",
+            t.list().all { (name, _, e) ->
+                warns.first { it.prayer == name }.minuteOfDay ==
+                    ((e.minutes - 15) + 1440) % 1440
+            })
+
+        // The one that midnight breaks. Isha ends at tomorrow's Subh Sadiq, so
+        // its warning must land on the NEXT day, not at 4 AM this morning.
+        val ishaWarn = warns.first { it.prayer == "Isha" }
+        check("Isha's warning lands tomorrow", ishaWarn.at >= 1440, ishaWarn.at)
+        check("Isha's warning is after Isha starts",
+            ishaWarn.at > t.isha.minutes, "${ishaWarn.at} vs ${t.isha.minutes}")
+        check("Isha's warning day offset is 1", ishaWarn.dayOffset == 1, ishaWarn.dayOffset)
+        check("the other four warnings land today",
+            warns.filter { it.prayer != "Isha" }.all { it.dayOffset == 0 })
+
+        check("request codes are unique",
+            a.map { it.requestCode }.toSet().size == 10,
+            a.map { it.requestCode })
+    }
+
+    println("\n-- alerts: sweep, a warning must never precede its own azan --")
+    run {
+        var bad = 0
+        for (c in listOf(khi, isb, lhr, pew, Cities.byName("Gilgit")!!,
+                         Cities.byName("Gwadar")!!)) {
+            for (mo in 1..12) for (day in listOf(1, 21)) {
+                val t = PrayerTimes.forDate(2026, mo, day, c)
+                val a = Alerts.forDay(t)
+                for ((name, s, e) in t.list()) {
+                    val w = a.firstOrNull {
+                        it.kind == AlertKind.QAZA_WARNING && it.prayer == name
+                    } ?: continue
+                    val endAbs = if (e.minutes <= s.minutes) e.minutes + 1440 else e.minutes
+                    if (w.at <= s.minutes || w.at >= endAbs) bad++
+                }
+            }
+        }
+        check("every warning sits inside its own window, 6 cities x 12 months",
+            bad == 0, "$bad violations")
+    }
+
+    println("\n-- alerts: what gets armed --")
+    run {
+        val t = PrayerTimes.forDate(2026, 9, 19, isb)
+        val tm = PrayerTimes.forDate(2026, 9, 20, isb)
+
+        val atDawn = Alerts.toArm(t, tm, nowMinutes = 3 * 60)
+        check("arming at 3 AM gives ten alarms", atDawn.size == 10, atDawn.size)
+        check("no two alarms share a slot",
+            atDawn.map { it.requestCode }.toSet().size == atDawn.size)
+        check("everything armed is in the future",
+            atDawn.all { it.at > 3 * 60 })
+        check("armed list is in time order",
+            atDawn.map { it.at } == atDawn.map { it.at }.sorted())
+
+        // Late at night almost nothing is left today, so the list has to reach
+        // into tomorrow or the chain dies overnight.
+        val lateNight = Alerts.toArm(t, tm, nowMinutes = 23 * 60 + 30)
+        check("arming at 11:30 PM still covers tomorrow",
+            lateNight.size == 10, lateNight.size)
+        check("tomorrow's Fajr is armed",
+            lateNight.any { it.prayer == "Fajr" && it.kind == AlertKind.PRAYER_START &&
+                it.at == tm.fajr.minutes + 1440 },
+            lateNight.filter { it.prayer == "Fajr" }.map { it.at })
+        check("nothing armed in the past", lateNight.all { it.at > 23 * 60 + 30 })
+
+        // The distinction that caused a real bug: an alert can ring tomorrow
+        // about a prayer that belongs to today. Whoever fires it has to read
+        // the right day's marked prayers.
+        val ishaWarn = atDawn.first {
+            it.prayer == "Isha" && it.kind == AlertKind.QAZA_WARNING
+        }
+        check("today's Isha warning rings tomorrow about today's prayer",
+            ishaWarn.dayOffset == 1 && ishaWarn.fromDayOffset == 0, ishaWarn)
+        val tomorrowFajr = lateNight.first {
+            it.prayer == "Fajr" && it.kind == AlertKind.PRAYER_START
+        }
+        check("tomorrow's Fajr rings tomorrow about tomorrow's prayer",
+            tomorrowFajr.dayOffset == 1 && tomorrowFajr.fromDayOffset == 1,
+            tomorrowFajr)
+        check("everything still ahead today belongs to today",
+            atDawn.filter { it.dayOffset == 0 }.all { it.fromDayOffset == 0 })
+        check("a prayer never belongs to a day after the one it rings on",
+            (atDawn + lateNight).all { it.fromDayOffset <= it.dayOffset })
+    }
+
+    println("\n-- alerts: staying quiet when it should --")
+    run {
+        val a = Alert(AlertKind.QAZA_WARNING, "Asr", 17 * 60)
+        check("silent once the prayer is marked",
+            !Alerts.stillRelevant(a, 17 * 60, setOf("Asr")))
+        check("fires on time when unmarked",
+            Alerts.stillRelevant(a, 17 * 60, emptySet()))
+        check("fires three minutes late",
+            Alerts.stillRelevant(a, 17 * 60 + 3, emptySet()))
+        check("stays silent an hour late",
+            !Alerts.stillRelevant(a, 18 * 60, emptySet()))
+        // An Isha warning lands after midnight; the grace check must not treat
+        // "one minute early" as "1439 minutes late".
+        val night = Alert(AlertKind.QAZA_WARNING, "Isha", 1440 + 4 * 60 + 20)
+        check("a post-midnight warning fires at its own time",
+            Alerts.stillRelevant(night, 4 * 60 + 20, emptySet()))
+        check("a post-midnight warning fires a minute early",
+            Alerts.stillRelevant(night, 4 * 60 + 19, emptySet()))
+    }
+
+    println("\n-- streaks: current and longest together --")
+    run {
+        val all = { _: Int, _: Int, _: Int -> true }
+        val none = { _: Int, _: Int, _: Int -> false }
+
+        val lastThirty = { y: Int, m: Int, d: Int ->
+            daysBetween(2026, 9, 19, y, m, d) in 0..29
+        }
+        val perfect = streakSummary(2026, 9, 19, 60, lastThirty)
+        check("an unbroken month is both current and best",
+            perfect.current == 30 && perfect.best == 30 && perfect.currentIsBest,
+            perfect)
+        // currentStreak deliberately has no window: it walks back until it
+        // finds an incomplete day. Only the *best* search is windowed.
+        val forever = streakSummary(2026, 9, 19, 30, all)
+        check("an endless history does not spin forever",
+            forever.current in 3650..3651 && forever.best == forever.current, forever)
+
+        val empty = streakSummary(2026, 9, 19, 30, none)
+        check("nothing prayed means no streak at all",
+            empty.current == 0 && empty.best == 0 && !empty.currentIsBest, empty)
+
+        // Complete for the last 3 days, a gap, then a 10-day run before it.
+        val gapped = { y: Int, m: Int, d: Int ->
+            val days = daysBetween(2026, 9, 19, y, m, d)   // 0 = today
+            days in 0..2 || days in 4..13
+        }
+        val mixed = streakSummary(2026, 9, 19, 60, gapped)
+        check("current streak is the recent run", mixed.current == 3, mixed)
+        check("best streak is the older, longer run", mixed.best == 10, mixed)
+        check("current is correctly not the best", !mixed.currentIsBest, mixed)
+
+        // Today unfinished must not zero the streak, and must not zero the best.
+        val exceptToday = { y: Int, m: Int, d: Int ->
+            daysBetween(2026, 9, 19, y, m, d) in 1..7
+        }
+        val pending = streakSummary(2026, 9, 19, 60, exceptToday)
+        check("an unfinished today leaves the streak standing",
+            pending.current == 7, pending)
+        check("best still sees the run behind today", pending.best == 7, pending)
+        check("current counts as best when they match",
+            pending.currentIsBest, pending)
+
+        // A run longer than the look-back window must never report best < current.
+        val longRun = streakSummary(2026, 9, 19, 5, all)
+        check("best is never shorter than current",
+            longRun.best >= longRun.current, longRun)
+    }
 
     println("\n-- printed sample: Islamabad, 19 Sep 2026 (Karachi method, Hanafi) --")
     val s = PrayerTimes.forDate(2026, 9, 19, isb)

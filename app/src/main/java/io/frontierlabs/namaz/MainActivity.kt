@@ -1,102 +1,213 @@
 package io.frontierlabs.namaz
 
+import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.hardware.GeomagneticField
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import io.frontierlabs.namaz.core.*
 import java.time.LocalDate
 import java.time.LocalTime
-import java.time.ZoneId
 
-private val PK = ZoneId.of("Asia/Karachi")
+/** Current language's strings, available to every composable. */
+val LocalStr = staticCompositionLocalOf { Strings.EN }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { NamazTheme { AppRoot(getSharedPreferences("namaz", Context.MODE_PRIVATE)) } }
+        Notifications.ensureChannels(this)
+        setContent { NamazTheme { AppRoot(Prefs.get(this)) } }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Re-arm on every return to the app. This is the cheap safety net
+        // that covers a dropped alarm, a day that rolled over while the app
+        // sat in the background, or a permission that was granted in
+        // Android's settings rather than in the app.
+        runCatching { Scheduler.armAll(this) }
     }
 }
+
+// --- palette ---------------------------------------------------------------
+
+private val GOLD = Color(0xFFD9B45B)
+private val GOLD_DIM = Color(0xFF8C7433)
+private val GREEN = Color(0xFF4EC27F)
+private val MUTED = Color(0xFF9AA3AF)
+private val FAINT = Color(0x1AFFFFFF)
+private val FAINT2 = Color(0x40FFFFFF)
+private val RED = Color(0xFFE05555)
+private val AMBER = Color(0xFFE8853F)
+
+private val BG_TOP = Color(0xFF0B0F16)
+private val BG_BOTTOM = Color(0xFF13161D)
+private val CARD = Color(0xFF181C25)
+private val STROKE = Color(0x14FFFFFF)
+
+private val R20 = RoundedCornerShape(20.dp)
+private val R16 = RoundedCornerShape(16.dp)
+private val R12 = RoundedCornerShape(12.dp)
 
 @Composable
 fun NamazTheme(content: @Composable () -> Unit) {
     // The Surface is not decoration. Without one, Compose has no background to
     // derive a content colour from, so Text with no explicit colour falls back
     // to black -- which is why the month table was unreadable. The Surface
-    // paints the dark background and sets the matching light text colour for
-    // everything inside it.
-    MaterialTheme(colorScheme = darkColorScheme()) {
+    // paints the base and sets the matching light text colour for everything
+    // inside it; the gradient on top is only there to stop a large dark screen
+    // looking flat.
+    MaterialTheme(colorScheme = darkColorScheme(background = BG_TOP, surface = CARD)) {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
             contentColor = MaterialTheme.colorScheme.onBackground,
-            content = content,
-        )
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Brush.verticalGradient(listOf(BG_TOP, BG_BOTTOM))),
+            ) { content() }
+        }
     }
 }
 
-private val GOLD = Color(0xFFD9B45B)
-private val GREEN = Color(0xFF4EC27F)
-private val MUTED = Color(0xFF9AA3AF)
-private val FAINT = Color(0x1AFFFFFF)
-private val FAINT2 = Color(0x40FFFFFF)
-private val RED = Color(0xFFE05555)
+/**
+ * The one card shape used everywhere.
+ *
+ * A hairline border rather than a shadow: on a dark gradient an elevation
+ * shadow is invisible, so the only thing separating a card from the page is
+ * its edge.
+ */
+@Composable
+private fun Panel(
+    modifier: Modifier = Modifier,
+    fill: Color = CARD,
+    stroke: Color = STROKE,
+    shape: androidx.compose.ui.graphics.Shape = R20,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier
+            .clip(shape)
+            .background(fill)
+            .border(BorderStroke(1.dp, stroke), shape),
+        content = content,
+    )
+}
+
+@Composable
+private fun GradientPanel(
+    modifier: Modifier = Modifier,
+    colors: List<Color>,
+    stroke: Color,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier
+            .clip(R20)
+            .background(Brush.verticalGradient(colors))
+            .border(BorderStroke(1.dp, stroke), R20),
+        content = content,
+    )
+}
 
 @Composable
 fun AppRoot(prefs: android.content.SharedPreferences) {
-    var city by remember {
-        mutableStateOf(
-            Cities.byName(prefs.getString("city", null) ?: "") ?: Cities.default
-        )
-    }
-    var settings by remember {
-        mutableStateOf(
-            Settings(
-                method = runCatching {
-                    CalcMethod.valueOf(prefs.getString("method", "KARACHI")!!)
-                }.getOrDefault(CalcMethod.KARACHI),
-                asr = runCatching {
-                    AsrMethod.valueOf(prefs.getString("asr", "HANAFI")!!)
-                }.getOrDefault(AsrMethod.HANAFI),
-            )
-        )
-    }
+    val context = LocalContext.current
+
+    var city by remember { mutableStateOf(Prefs.city(prefs)) }
+    var settings by remember { mutableStateOf(Prefs.settings(prefs)) }
+    var lang by remember { mutableStateOf(Prefs.lang(prefs)) }
     var tab by remember { mutableIntStateOf(0) }
     var pickingCity by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var update by remember { mutableStateOf<UpdateDecision?>(null) }
+
+    // Android 13+ will not show anything at all until this is granted, and it
+    // has to be asked for while a screen is up -- an alarm receiver cannot
+    // request it. So it is asked once, on first launch.
+    val askNotifications = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { runCatching { Scheduler.armAll(context) } }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            runCatching { askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS) }
+        }
+    }
+
+    // Fails open by design: any network or parsing problem leaves `update`
+    // null and the app fully usable. See UpdateCheck's documentation.
+    LaunchedEffect(Unit) {
+        val decision = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            UpdateChecker.fetch(context)
+        }
+        if (decision.action != UpdateAction.NONE) update = decision
+    }
+
+    fun saveLang(l: Lang) {
+        lang = l
+        prefs.edit().putString("lang", l.name).apply()
+        // The channel names in Android's own settings are in the app's
+        // language, so they have to be rewritten when it changes.
+        Notifications.ensureChannels(context)
+    }
 
     fun saveCity(c: City) {
         city = c
         prefs.edit().putString("city", c.name).apply()
+        // Moving 300 km west shifts every alarm by twenty minutes.
+        runCatching { Scheduler.armAll(context) }
     }
 
     fun saveSettings(s: Settings) {
@@ -105,6 +216,7 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
             .putString("method", s.method.name)
             .putString("asr", s.asr.name)
             .apply()
+        runCatching { Scheduler.armAll(context) }
     }
 
     val today = remember { LocalDate.now(PK) }
@@ -114,68 +226,122 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
         PrayerTimes.forDate(today.year, today.monthValue, today.dayOfMonth, city, settings)
     }
 
-    Column(Modifier.fillMaxSize()) {
-        // Header: city + settings
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp, 20.dp, 16.dp, 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f).clickable { pickingCity = true }) {
-                Text("Namaz Timings", fontSize = 12.sp, color = MUTED)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(city.name, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                    Text("  ▼", fontSize = 12.sp, color = GOLD)
+    CompositionLocalProvider(
+        LocalStr provides Strings.of(lang),
+        LocalLayoutDirection provides
+            if (lang.rtl) LayoutDirection.Rtl else LayoutDirection.Ltr,
+    ) {
+        val S = LocalStr.current
+
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier.fillMaxWidth().padding(20.dp, 22.dp, 16.dp, 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f).clickable { pickingCity = true }) {
+                    Text(
+                        S.appName, fontSize = 11.sp, color = GOLD_DIM,
+                        fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            Strings.cityName(lang, city.name), fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.width(7.dp))
+                        Box(
+                            Modifier
+                                .clip(CircleShape)
+                                .background(Color(0x22D9B45B))
+                                .padding(horizontal = 7.dp, vertical = 2.dp),
+                        ) { Text("▾", fontSize = 11.sp, color = GOLD) }
+                    }
+                    Text(
+                        "${Strings.provinceName(lang, city.province)}  ·  ${S.tapToChange}",
+                        fontSize = 11.sp, color = MUTED,
+                    )
                 }
-                Text("${city.province}  ·  tap to change",
-                    fontSize = 11.sp, color = MUTED)
+                TextButton(onClick = { showSettings = true }) {
+                    Text(S.settings, color = GOLD, fontSize = 13.sp)
+                }
             }
-            TextButton(onClick = { showSettings = true }) {
-                Text("Settings", color = GOLD, fontSize = 13.sp)
+
+            PillTabs(
+                selected = tab,
+                labels = listOf(S.tabToday, S.tabMonth, S.tabQibla),
+                onSelect = { tab = it },
+            )
+
+            when (tab) {
+                0 -> TodayScreen(city, times, settings, prefs, today, lang)
+                2 -> QiblaScreen(city, lang)
+                else -> MonthScreen(
+                    city, settings, shownYear, shownMonth, lang,
+                    isCurrentMonth = shownMonth == today.monthValue && shownYear == today.year,
+                    todayDay = today.dayOfMonth,
+                    onMonth = { shownMonth = it },
+                    onYear = { shownYear = it },
+                )
             }
         }
 
-        TabRow(selectedTabIndex = tab, containerColor = Color.Transparent) {
-            Tab(tab == 0, { tab = 0 }, text = { Text("Today") })
-            Tab(tab == 1, { tab = 1 }, text = { Text("Month") })
-            Tab(tab == 2, { tab = 2 }, text = { Text("Qibla") })
-        }
-
-        when (tab) {
-            0 -> TodayScreen(city, times, settings, prefs, today)
-            2 -> QiblaScreen(city)
-            else -> MonthScreen(
-                city, settings, shownYear, shownMonth,
-                isCurrentMonth = shownMonth == today.monthValue && shownYear == today.year,
-                todayDay = today.dayOfMonth,
-                onMonth = { shownMonth = it },
-                onYear = { shownYear = it },
+        if (pickingCity) {
+            CityPicker(
+                lang,
+                onPick = { saveCity(it); pickingCity = false },
+                onDismiss = { pickingCity = false },
             )
         }
-    }
-
-    if (pickingCity) {
-        CityPicker(onPick = { saveCity(it); pickingCity = false },
-            onDismiss = { pickingCity = false })
-    }
-    if (showSettings) {
-        SettingsDialog(settings, onSave = { saveSettings(it); showSettings = false },
-            onDismiss = { showSettings = false })
+        if (showSettings) {
+            SettingsDialog(
+                settings, lang, prefs,
+                onSave = { st, l -> saveSettings(st); saveLang(l); showSettings = false },
+                onDismiss = { showSettings = false },
+            )
+        }
+        update?.let { UpdateDialog(it) { update = null } }
     }
 }
 
-// --- tracking storage ------------------------------------------------------
-// One StringSet per date. SharedPreferences hands back a set that must not be
-// mutated, so every read copies it.
-
-private fun dateKey(y: Int, m: Int, d: Int) = "done:%04d-%02d-%02d".format(y, m, d)
-
-private fun readDone(prefs: android.content.SharedPreferences, y: Int, m: Int, d: Int)
-    : Set<String> = prefs.getStringSet(dateKey(y, m, d), null)?.toSet() ?: emptySet()
-
-private fun writeDone(
-    prefs: android.content.SharedPreferences,
-    y: Int, m: Int, d: Int, value: Set<String>,
-) = prefs.edit().putStringSet(dateKey(y, m, d), value).apply()
+/**
+ * A segmented control instead of a Material TabRow.
+ *
+ * The underline indicator sat oddly against the cards, and this also mirrors
+ * cleanly in Urdu without the indicator animating to the wrong side.
+ */
+@Composable
+private fun PillTabs(selected: Int, labels: List<String>, onSelect: (Int) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(R16)
+            .background(Color(0x14FFFFFF))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        labels.forEachIndexed { i, label ->
+            val on = i == selected
+            Box(
+                Modifier
+                    .weight(1f)
+                    .clip(R12)
+                    .background(if (on) GOLD else Color.Transparent)
+                    .clickable { onSelect(i) }
+                    .padding(vertical = 9.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    fontSize = 13.sp,
+                    fontWeight = if (on) FontWeight.Bold else FontWeight.Medium,
+                    color = if (on) Color(0xFF14161C) else MUTED,
+                )
+            }
+        }
+    }
+}
 
 @Composable
 fun TodayScreen(
@@ -184,7 +350,9 @@ fun TodayScreen(
     settings: Settings,
     prefs: android.content.SharedPreferences,
     today: LocalDate,
+    lang: Lang,
 ) {
+    val S = LocalStr.current
     // Ticks so the countdown stays live without a service.
     var nowClock by remember {
         mutableStateOf(LocalTime.now(PK).let { Clock(it.hour * 60 + it.minute) })
@@ -198,20 +366,20 @@ fun TodayScreen(
     }
 
     var done by remember {
-        mutableStateOf(readDone(prefs, today.year, today.monthValue, today.dayOfMonth))
+        mutableStateOf(Prefs.readDone(prefs, today.year, today.monthValue, today.dayOfMonth))
     }
     fun toggle(name: String) {
         done = if (done.contains(name)) done - name else done + name
-        writeDone(prefs, today.year, today.monthValue, today.dayOfMonth, done)
+        Prefs.writeDone(prefs, today.year, today.monthValue, today.dayOfMonth, done)
     }
 
     var showHistory by remember { mutableStateOf(false) }
     var historyVersion by remember { mutableIntStateOf(0) }
 
     val streak = remember(done, historyVersion) {
-        Tracker.currentStreak(today.year, today.monthValue, today.dayOfMonth) { y, m, d ->
+        streakSummary(today.year, today.monthValue, today.dayOfMonth) { y, m, d ->
             val set = if (y == today.year && m == today.monthValue && d == today.dayOfMonth)
-                done else readDone(prefs, y, m, d)
+                done else Prefs.readDone(prefs, y, m, d)
             Tracker.isDayComplete(set)
         }
     }
@@ -220,48 +388,113 @@ fun TodayScreen(
     val (_, next, minsToNext) = PrayerTimes.nextPrayer(nowClock, t)
     val statuses = Tracker.dayStatuses(nowClock, t, done)
 
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
+    Column(
+        Modifier
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(top = 12.dp),
+    ) {
 
         // --- current prayer, its qaza time, and the countdown --------------
-        Card(Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0x22D9B45B))) {
-            Column(Modifier.fillMaxWidth().padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                if (current != null) {
-                    val (name, startAt, qazaAt) = current
-                    val left = Tracker.minutesUntil(nowClock, qazaAt)
-                    val urgent = left <= 30
-                    Text("CURRENT PRAYER", fontSize = 11.sp, color = MUTED,
-                        fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(6.dp))
-                    Text(name, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = GOLD)
-                    Text("started ${startAt.format12()}", fontSize = 12.sp, color = MUTED)
-                    Spacer(Modifier.height(14.dp))
-                    HorizontalDivider(color = FAINT)
-                    Spacer(Modifier.height(14.dp))
-                    Text("BECOMES QAZA AT", fontSize = 10.sp, color = MUTED,
-                        fontWeight = FontWeight.SemiBold)
-                    Text(qazaAt.format12(), fontSize = 22.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (urgent) RED else Color.Unspecified)
-                    Spacer(Modifier.height(4.dp))
+        if (current != null) {
+            val (name, startAt, qazaAt) = current
+            val left = Tracker.minutesUntil(nowClock, qazaAt)
+            val total = ((qazaAt.minutes - startAt.minutes) + 1440) % 1440
+            val fraction = if (total <= 0) 0f else left.toFloat() / total.toFloat()
+            val urgent = left <= 30
+
+            GradientPanel(
+                Modifier.fillMaxWidth(),
+                colors = if (urgent) listOf(Color(0x33E05555), Color(0x11E05555))
+                         else listOf(Color(0x33D9B45B), Color(0x0FD9B45B)),
+                stroke = if (urgent) Color(0x44E05555) else Color(0x33D9B45B),
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Text(
-                        if (left >= 60) "${left / 60}h ${left % 60}m left"
-                        else "$left min left",
-                        fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                        color = if (urgent) RED else GREEN,
+                        S.currentPrayer, fontSize = 10.sp, color = MUTED,
+                        fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp,
                     )
-                    if (done.contains(name)) {
-                        Spacer(Modifier.height(8.dp))
-                        Text("\u2713 Marked as prayed", fontSize = 12.sp, color = GREEN)
+                    Spacer(Modifier.height(14.dp))
+
+                    // The ring drains as the window closes -- how much time is
+                    // left is the one thing worth seeing without reading.
+                    CountdownRing(fraction = fraction, urgent = urgent) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                Strings.prayerName(lang, name), fontSize = 27.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (urgent) RED else GOLD,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                if (left >= 60) "${left / 60}h ${left % 60}m"
+                                else "$left min",
+                                fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                                color = if (urgent) RED else GREEN,
+                            )
+                            Text(S.left, fontSize = 10.sp, color = MUTED)
+                        }
                     }
-                } else {
-                    Text("NO PRAYER DUE NOW", fontSize = 11.sp, color = MUTED,
-                        fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(6.dp))
-                    Text(next, fontSize = 30.sp, fontWeight = FontWeight.Bold, color = GOLD)
-                    Text("begins in ${minsToNext / 60}h ${minsToNext % 60}m",
-                        fontSize = 14.sp, color = MUTED)
+
+                    Spacer(Modifier.height(14.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column {
+                            Text(S.started, fontSize = 9.sp, color = MUTED,
+                                fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Text(startAt.format12(), fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(S.becomesQazaAt, fontSize = 9.sp, color = MUTED,
+                                fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Text(
+                                qazaAt.format12(), fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (urgent) RED else Color.Unspecified,
+                            )
+                        }
+                    }
+
+                    if (done.contains(name)) {
+                        Spacer(Modifier.height(12.dp))
+                        Box(
+                            Modifier
+                                .clip(CircleShape)
+                                .background(Color(0x224EC27F))
+                                .padding(horizontal = 12.dp, vertical = 5.dp),
+                        ) {
+                            Text("✓  ${S.markedAsPrayed}", fontSize = 12.sp,
+                                color = GREEN, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        } else {
+            GradientPanel(
+                Modifier.fillMaxWidth(),
+                colors = listOf(Color(0x22D9B45B), Color(0x0AD9B45B)),
+                stroke = Color(0x26D9B45B),
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(S.noPrayerDue, fontSize = 10.sp, color = MUTED,
+                        fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                    Spacer(Modifier.height(10.dp))
+                    Text(Strings.prayerName(lang, next), fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold, color = GOLD)
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "${S.beginsIn} ${minsToNext / 60}h ${minsToNext % 60}m",
+                        fontSize = 13.sp, color = MUTED,
+                    )
                 }
             }
         }
@@ -269,84 +502,63 @@ fun TodayScreen(
         // --- upcoming ------------------------------------------------------
         if (current != null) {
             Spacer(Modifier.height(10.dp))
-            Card(Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
+            Panel(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Column(Modifier.weight(1f)) {
-                        Text("UP NEXT", fontSize = 10.sp, color = MUTED,
-                            fontWeight = FontWeight.SemiBold)
+                        Text(S.upNext, fontSize = 9.sp, color = MUTED,
+                            fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                         Spacer(Modifier.height(3.dp))
-                        Text(next, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                        Text(Strings.prayerName(lang, next), fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold)
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
                             t.list().firstOrNull { it.first == next }?.second?.format12()
-                                ?: "\u2014",
-                            fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = GOLD)
-                        Text("in ${minsToNext / 60}h ${minsToNext % 60}m",
+                                ?: "—",
+                            fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = GOLD,
+                        )
+                        Text("${minsToNext / 60}h ${minsToNext % 60}m",
                             fontSize = 11.sp, color = MUTED)
                     }
                 }
             }
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
 
         // --- Sehri and Iftar ------------------------------------------------
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            InfoTile("Sehri ends", t.sehriEnd.format12(), Modifier.weight(1f))
-            InfoTile("Iftar", t.iftar.format12(), Modifier.weight(1f))
+            InfoTile(S.sehriEnds, t.sehriEnd.format12(), Modifier.weight(1f))
+            InfoTile(S.iftar, t.iftar.format12(), Modifier.weight(1f))
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
 
-        // --- streak ----------------------------------------------------------
-        Card(Modifier.fillMaxWidth().clickable { showHistory = true },
-            colors = CardDefaults.cardColors(
-                containerColor = if (streak > 0) Color(0x224EC27F) else Color(0x14FFFFFF))) {
-            Column(Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("STREAK", fontSize = 10.sp, color = MUTED,
-                            fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            if (streak == 1) "1 day" else "$streak days",
-                            fontSize = 22.sp, fontWeight = FontWeight.Bold,
-                            color = if (streak > 0) GREEN else MUTED,
-                        )
-                    }
-                    Text("${Tracker.completedCount(done)} of 5 today",
-                        fontSize = 13.sp, color = MUTED)
-                }
-                Spacer(Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (Tracker.isDayComplete(done)) "All five prayed today."
-                        else "Complete all five to extend your streak.",
-                        Modifier.weight(1f), fontSize = 11.5.sp, color = MUTED,
-                    )
-                    Text("Past days \u203A", fontSize = 12.sp, color = GOLD,
-                        fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
+        StreakCard(
+            summary = streak,
+            doneToday = done,
+            onOpenHistory = { showHistory = true },
+        )
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
 
         // --- the five prayers, tappable --------------------------------------
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
+        Panel(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                 Row {
-                    Text("PRAYER", Modifier.weight(1.1f), fontSize = 10.sp, color = MUTED,
-                        fontWeight = FontWeight.SemiBold)
-                    Text("AZAN", Modifier.weight(0.9f), fontSize = 10.sp,
-                        color = MUTED, fontWeight = FontWeight.SemiBold)
-                    Text("QAZA AT", Modifier.weight(0.9f), fontSize = 10.sp, color = MUTED,
-                        fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.width(10.dp))
+                    Text(S.prayer, Modifier.weight(1.1f), fontSize = 9.sp, color = MUTED,
+                        fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Text(S.azan, Modifier.weight(0.9f), fontSize = 9.sp,
+                        color = MUTED, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Text(S.qazaAt, Modifier.weight(0.9f), fontSize = 9.sp, color = MUTED,
+                        fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                     Spacer(Modifier.width(30.dp))
                 }
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(6.dp))
                 HorizontalDivider(color = FAINT)
 
                 t.list().forEachIndexed { i, (name, startAt, endAt) ->
@@ -358,16 +570,37 @@ fun TodayScreen(
                         PrayerStatus.UPCOMING -> Color.Unspecified
                     }
                     Row(
-                        Modifier.fillMaxWidth().clickable { toggle(name) }
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { toggle(name) }
                             .padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        // A coloured spine on the active row, so the prayer
+                        // you are in is findable at a glance.
+                        Box(
+                            Modifier
+                                .width(3.dp)
+                                .height(if (status == PrayerStatus.DUE) 30.dp else 18.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    when (status) {
+                                        PrayerStatus.DONE -> GREEN
+                                        PrayerStatus.MISSED -> RED
+                                        PrayerStatus.DUE -> GOLD
+                                        PrayerStatus.UPCOMING -> Color.Transparent
+                                    }
+                                ),
+                        )
+                        Spacer(Modifier.width(7.dp))
                         Column(Modifier.weight(1.1f)) {
-                            Text(name, fontSize = 15.sp, color = tint,
+                            Text(
+                                Strings.prayerName(lang, name), fontSize = 15.sp, color = tint,
                                 fontWeight = if (status == PrayerStatus.DUE)
-                                    FontWeight.Bold else FontWeight.Normal)
+                                    FontWeight.Bold else FontWeight.Normal,
+                            )
                             if (status == PrayerStatus.MISSED) {
-                                Text("qaza \u2014 owed", fontSize = 10.sp, color = RED)
+                                Text(S.qazaOwed, fontSize = 10.sp, color = RED)
                             }
                         }
                         Text(startAt.format12(), Modifier.weight(0.9f), fontSize = 14.sp)
@@ -376,9 +609,9 @@ fun TodayScreen(
                         Box(Modifier.width(30.dp), contentAlignment = Alignment.Center) {
                             Text(
                                 when (status) {
-                                    PrayerStatus.DONE -> "\u2713"
-                                    PrayerStatus.MISSED -> "\u2715"
-                                    else -> "\u25CB"
+                                    PrayerStatus.DONE -> "✓"
+                                    PrayerStatus.MISSED -> "✕"
+                                    else -> "○"
                                 },
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
@@ -389,42 +622,43 @@ fun TodayScreen(
                     HorizontalDivider(color = FAINT)
                 }
                 Spacer(Modifier.height(10.dp))
-                Text("Tap a prayer to mark it prayed. Tap again to undo. " +
-                    "Unmarked prayers turn red once their time has passed.",
-                    fontSize = 11.5.sp, color = MUTED)
+                Text(S.tapToMark, fontSize = 11.5.sp, color = MUTED)
             }
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
 
-        Card(Modifier.fillMaxWidth()) {
+        Panel(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("ALSO TODAY", fontSize = 10.sp, color = MUTED,
-                    fontWeight = FontWeight.SemiBold)
+                Text(S.alsoToday, fontSize = 9.sp, color = MUTED,
+                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Spacer(Modifier.height(10.dp))
-                MiniRow("Sunrise", t.sunrise.format12())
-                MiniRow("Tahajjud from", t.tahajjudStart.format12())
-                MiniRow("Ishraq", "${t.ishraqStart.format12()} \u2013 ${t.ishraqEnd.format12()}")
-                MiniRow("Chasht", "${t.chashtStart.format12()} \u2013 ${t.chashtEnd.format12()}")
-                MiniRow("Avoid: after sunrise",
-                    "${t.makruhAfterSunrise.first.format12()} \u2013 " +
-                        t.makruhAfterSunrise.second.format12())
-                MiniRow("Avoid: around midday",
-                    "${t.makruhBeforeZuhr.first.format12()} \u2013 " +
-                        t.makruhBeforeZuhr.second.format12())
-                MiniRow("Avoid: before sunset",
-                    "${t.makruhBeforeMaghrib.first.format12()} \u2013 " +
-                        t.makruhBeforeMaghrib.second.format12())
+                MiniRow(S.sunrise, t.sunrise.format12())
+                MiniRow(S.tahajjud, t.tahajjudStart.format12())
+                MiniRow(S.ishraq,
+                    "${t.ishraqStart.format12()} – ${t.ishraqEnd.format12()}")
+                MiniRow(S.chasht,
+                    "${t.chashtStart.format12()} – ${t.chashtEnd.format12()}")
+                Spacer(Modifier.height(6.dp))
+                HorizontalDivider(color = FAINT)
+                Spacer(Modifier.height(6.dp))
+                MiniRow(S.avoidPrayer,
+                    "${t.makruhAfterSunrise.first.format12()} – " +
+                        t.makruhAfterSunrise.second.format12(), AMBER)
+                MiniRow(S.avoidPrayer,
+                    "${t.makruhBeforeZuhr.first.format12()} – " +
+                        t.makruhBeforeZuhr.second.format12(), AMBER)
+                MiniRow(S.avoidPrayer,
+                    "${t.makruhBeforeMaghrib.first.format12()} – " +
+                        t.makruhBeforeMaghrib.second.format12(), AMBER)
             }
         }
 
         Spacer(Modifier.height(14.dp))
-        Text("${settings.method.label} \u00B7 Asr: ${settings.asr.label}",
+        Text("${settings.method.label} · ${S.asr}: ${settings.asr.label}",
             fontSize = 11.sp, color = MUTED)
-        Spacer(Modifier.height(6.dp))
-        Text("Calculated for ${city.name}. Local mosques sometimes adjust by a " +
-            "few minutes \u2014 follow your masjid where they differ.",
-            fontSize = 11.sp, color = MUTED)
+        Spacer(Modifier.height(4.dp))
+        Text(S.followMasjid, fontSize = 11.sp, color = MUTED)
 
         Spacer(Modifier.height(24.dp))
         Footer()
@@ -432,23 +666,161 @@ fun TodayScreen(
     }
 
     if (showHistory) {
-        HistoryDialog(
+        CalendarDialog(
             prefs = prefs,
             today = today,
+            lang = lang,
             onDismiss = { showHistory = false },
             onChanged = {
                 historyVersion++
-                done = readDone(prefs, today.year, today.monthValue, today.dayOfMonth)
+                done = Prefs.readDone(prefs, today.year, today.monthValue, today.dayOfMonth)
             },
         )
     }
 }
 
+/**
+ * The ring around the current prayer. [fraction] is how much of the window is
+ * still open, so it empties as the deadline approaches rather than filling.
+ */
+@Composable
+private fun CountdownRing(
+    fraction: Float,
+    urgent: Boolean,
+    content: @Composable () -> Unit,
+) {
+    val ring = if (urgent) RED else GOLD
+    Box(Modifier.size(172.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val width = 9.dp.toPx()
+            val inset = width / 2f
+            val arc = Size(size.width - width, size.height - width)
+            drawArc(
+                color = Color(0x14FFFFFF), startAngle = -90f, sweepAngle = 360f,
+                useCenter = false, topLeft = Offset(inset, inset), size = arc,
+                style = Stroke(width = width, cap = StrokeCap.Round),
+            )
+            drawArc(
+                color = ring, startAngle = -90f,
+                sweepAngle = 360f * fraction.coerceIn(0f, 1f),
+                useCenter = false, topLeft = Offset(inset, inset), size = arc,
+                style = Stroke(width = width, cap = StrokeCap.Round),
+            )
+        }
+        content()
+    }
+}
+
+/**
+ * Current streak and longest streak together.
+ *
+ * When the run going on now is the best there has been, saying so is the
+ * whole reward; when an older run was longer, showing both gives the number
+ * to aim at. Showing only one of the two would waste whichever case applies.
+ */
+@Composable
+private fun StreakCard(
+    summary: StreakSummary,
+    doneToday: Set<String>,
+    onOpenHistory: () -> Unit,
+) {
+    val S = LocalStr.current
+    val live = summary.current > 0
+    val record = live && summary.currentIsBest
+
+    GradientPanel(
+        Modifier.fillMaxWidth().clickable { onOpenHistory() },
+        colors = when {
+            record -> listOf(Color(0x334EC27F), Color(0x0F4EC27F))
+            live -> listOf(Color(0x224EC27F), Color(0x0A4EC27F))
+            else -> listOf(Color(0x12FFFFFF), Color(0x08FFFFFF))
+        },
+        stroke = if (live) Color(0x334EC27F) else STROKE,
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(S.streak, fontSize = 9.sp, color = MUTED,
+                        fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "${summary.current} ${if (summary.current == 1) S.day else S.days}",
+                        fontSize = 26.sp, fontWeight = FontWeight.Bold,
+                        color = if (live) GREEN else MUTED,
+                    )
+                }
+
+                // The record column only earns its space once there is a
+                // record to show.
+                if (summary.best > 0) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(S.longest, fontSize = 9.sp, color = MUTED,
+                            fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Spacer(Modifier.height(2.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (record) {
+                                Text("★ ", fontSize = 14.sp, color = GOLD)
+                            }
+                            Text(
+                                "${summary.best} ${if (summary.best == 1) S.day else S.days}",
+                                fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                                color = GOLD,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Dots(Tracker.completedCount(doneToday))
+                Spacer(Modifier.width(9.dp))
+                Text(
+                    "${Tracker.completedCount(doneToday)} ${S.ofFiveToday}",
+                    Modifier.weight(1f), fontSize = 12.sp, color = MUTED,
+                )
+                Text("${S.pastDays} ›", fontSize = 12.sp, color = GOLD,
+                    fontWeight = FontWeight.SemiBold)
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                when {
+                    record -> S.thisIsYourBest
+                    live -> "${summary.best - summary.current + 1} " +
+                        "${S.days} ${S.toBeatYourBest}"
+                    else -> S.noStreakYet
+                },
+                fontSize = 11.5.sp,
+                color = if (record) GREEN else MUTED,
+            )
+        }
+    }
+}
+
+/** Five dots: today's five prayers, filled as they are marked. */
+@Composable
+private fun Dots(count: Int) {
+    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        repeat(5) { i ->
+            Box(
+                Modifier
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(if (i < count) GREEN else Color(0x33FFFFFF)),
+            )
+        }
+    }
+}
+
 @Composable
 private fun InfoTile(label: String, value: String, mod: Modifier) {
-    Card(mod) {
-        Column(Modifier.fillMaxWidth().padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally) {
+    Panel(mod) {
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = 16.dp, horizontal = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Text(label, fontSize = 11.sp, color = MUTED)
             Spacer(Modifier.height(4.dp))
             Text(value, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = GOLD)
@@ -457,9 +829,10 @@ private fun InfoTile(label: String, value: String, mod: Modifier) {
 }
 
 @Composable
-private fun MiniRow(label: String, value: String) {
+private fun MiniRow(label: String, value: String, color: Color = Color.Unspecified) {
     Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-        Text(label, Modifier.weight(1f), fontSize = 13.sp, color = MUTED)
+        Text(label, Modifier.weight(1f), fontSize = 13.sp,
+            color = if (color == Color.Unspecified) MUTED else color)
         Text(value, fontSize = 13.sp)
     }
 }
@@ -470,11 +843,13 @@ fun MonthScreen(
     settings: Settings,
     year: Int,
     month: Int,
+    lang: Lang,
     isCurrentMonth: Boolean,
     todayDay: Int,
     onMonth: (Int) -> Unit,
     onYear: (Int) -> Unit,
 ) {
+    val S = LocalStr.current
     val rows = remember(city, settings, year, month) {
         PrayerTimes.forMonth(year, month, city, settings)
     }
@@ -485,26 +860,28 @@ fun MonthScreen(
         // Month picker: all twelve, always reachable.
         LazyRow(
             Modifier.fillMaxWidth().padding(vertical = 10.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(MONTHS.size) { i ->
+            items(12) { i ->
                 val m = i + 1
                 val on = m == month
                 Box(
                     Modifier
-                        .background(
-                            if (on) GOLD else Color(0x22FFFFFF),
-                            RoundedCornerShape(20.dp)
+                        .clip(CircleShape)
+                        .background(if (on) GOLD else Color(0x14FFFFFF))
+                        .border(
+                            BorderStroke(1.dp, if (on) Color.Transparent else STROKE),
+                            CircleShape,
                         )
                         .clickable { onMonth(m) }
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .padding(horizontal = 15.dp, vertical = 8.dp),
                 ) {
                     Text(
-                        MONTHS[i].take(3),
+                        Strings.monthName(lang, m).take(if (lang.rtl) 4 else 3),
                         fontSize = 13.sp,
                         fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-                        color = if (on) Color(0xFF1A1A1A) else MUTED,
+                        color = if (on) Color(0xFF14161C) else MUTED,
                     )
                 }
             }
@@ -514,20 +891,21 @@ fun MonthScreen(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("${MONTHS[month - 1]} $year", Modifier.weight(1f),
-                fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            TextButton(onClick = { onYear(year - 1) }) { Text("\u2039", color = GOLD) }
+            Text("${Strings.monthName(lang, month)} $year", Modifier.weight(1f),
+                fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            TextButton(onClick = { onYear(year - 1) }) { Text("‹", color = GOLD) }
             Text("$year", fontSize = 13.sp, color = MUTED)
-            TextButton(onClick = { onYear(year + 1) }) { Text("\u203A", color = GOLD) }
+            TextButton(onClick = { onYear(year + 1) }) { Text("›", color = GOLD) }
         }
-        Text("Tap any day for the full timetable", Modifier.padding(16.dp, 0.dp, 16.dp, 8.dp),
+        Text(S.tapAnyDay, Modifier.padding(16.dp, 0.dp, 16.dp, 8.dp),
             fontSize = 11.sp, color = MUTED)
 
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
-            listOf("Day", "Fajr", "Zuhr", "Asr", "Maghrib", "Isha").forEachIndexed { i, h ->
-                Text(h, Modifier.weight(if (i == 0) 0.6f else 1f), fontSize = 10.sp,
-                    color = MUTED, fontWeight = FontWeight.SemiBold)
-            }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
+            listOf(S.day, S.fajr, S.zuhr, S.asr, S.maghrib, S.isha)
+                .forEachIndexed { i, h ->
+                    Text(h, Modifier.weight(if (i == 0) 0.6f else 1f), fontSize = 10.sp,
+                        color = MUTED, fontWeight = FontWeight.Bold)
+                }
             Spacer(Modifier.width(18.dp))
         }
         HorizontalDivider(color = FAINT)
@@ -548,7 +926,7 @@ fun MonthScreen(
                         )
                         .clickable { expanded = if (isOpen) -1 else day }
                 ) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp)) {
                         Text("$day", Modifier.weight(0.6f), fontSize = 12.sp,
                             fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
                             color = if (isToday) GOLD else MUTED)
@@ -562,7 +940,7 @@ fun MonthScreen(
                         // Chevron: points right when closed, down when open, so
                         // it is obvious the row opens rather than just sitting there.
                         Text(
-                            "\u203A",
+                            "›",
                             Modifier.width(18.dp).rotate(if (isOpen) 90f else 0f),
                             fontSize = 17.sp,
                             color = if (isOpen) GOLD else MUTED,
@@ -573,7 +951,8 @@ fun MonthScreen(
                     if (isOpen) {
                         Column(Modifier.padding(16.dp, 2.dp, 16.dp, 16.dp)) {
                             Text(
-                                "${MONTHS[month - 1]} $day, $year \u00B7 ${city.name}",
+                                "${Strings.monthName(lang, month)} $day, $year · " +
+                                    Strings.cityName(lang, city.name),
                                 fontSize = 12.sp, color = GOLD,
                                 fontWeight = FontWeight.SemiBold,
                             )
@@ -585,27 +964,25 @@ fun MonthScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Column(Modifier.weight(1.25f)) {
-                                        Text(row.label, fontSize = 13.sp,
-                                            color = if (avoid) Color(0xFFE8853F)
-                                                    else Color.Unspecified)
+                                        Text(
+                                            Strings.prayerName(lang, row.label),
+                                            fontSize = 13.sp,
+                                            color = if (avoid) AMBER else Color.Unspecified,
+                                        )
                                         row.note?.let {
                                             Text(it, fontSize = 10.sp, color = MUTED)
                                         }
                                     }
                                     Text(row.start.format12(), Modifier.weight(0.85f),
                                         fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                    Text(row.end?.format12() ?: "\u2014",
+                                    Text(row.end?.format12() ?: "—",
                                         Modifier.weight(0.85f), fontSize = 12.sp,
                                         color = MUTED, textAlign = TextAlign.End)
                                 }
                                 HorizontalDivider(color = FAINT)
                             }
                             Spacer(Modifier.height(8.dp))
-                            Text(
-                                "Left column is the start, right column is when the " +
-                                    "window closes. After that a prayer becomes qaza.",
-                                fontSize = 10.5.sp, color = MUTED,
-                            )
+                            Text(S.windowNote, fontSize = 10.5.sp, color = MUTED)
                         }
                     }
                 }
@@ -613,8 +990,7 @@ fun MonthScreen(
             }
             item {
                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                    Text("Fajr is AM; Zuhr, Asr, Maghrib and Isha are PM.",
-                        fontSize = 11.sp, color = MUTED)
+                    Text(S.amPmNote, fontSize = 11.sp, color = MUTED)
                     Spacer(Modifier.height(20.dp))
                     Footer()
                     Spacer(Modifier.height(30.dp))
@@ -624,25 +1000,19 @@ fun MonthScreen(
     }
 }
 
-private val MONTHS = listOf(
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
-)
-
 @Composable
 fun Footer() {
+    val S = LocalStr.current
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         HorizontalDivider(color = FAINT)
         Spacer(Modifier.height(14.dp))
-        Text("Developed by Mansoor Ahmad", fontSize = 13.sp,
+        Text(S.developedBy, fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold, color = GOLD)
         Spacer(Modifier.height(4.dp))
-        Text("Times are calculated, not fetched. Follow your local masjid " +
-            "where it differs.", fontSize = 10.5.sp, color = MUTED,
+        Text("${S.footerNote} ${S.followMasjid}", fontSize = 10.5.sp, color = MUTED,
             textAlign = TextAlign.Center)
     }
 }
-
 
 /**
  * Live compass heading in degrees from MAGNETIC north, or null when the phone
@@ -681,7 +1051,8 @@ fun rememberMagneticHeading(): Float? {
 }
 
 @Composable
-fun QiblaScreen(city: City) {
+fun QiblaScreen(city: City, lang: Lang) {
+    val S = LocalStr.current
     val qibla = remember(city) { Qibla.bearing(city) }
     val distance = remember(city) { Qibla.distanceKm(city) }
 
@@ -703,15 +1074,15 @@ fun QiblaScreen(city: City) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("QIBLA FROM ${city.name.uppercase()}", fontSize = 11.sp, color = MUTED,
-            fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(4.dp))
-        Text("${Math.round(qibla)}\u00B0  ${Qibla.compassPoint(qibla)}",
-            fontSize = 30.sp, fontWeight = FontWeight.Bold, color = GOLD)
-        Text("from true north  \u00B7  ${Math.round(distance)} km to Makkah",
+        Text("${S.qiblaFrom} ${Strings.cityName(lang, city.name)}", fontSize = 10.sp,
+            color = MUTED, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+        Spacer(Modifier.height(6.dp))
+        Text("${Math.round(qibla)}°  ${Qibla.compassPoint(qibla)}",
+            fontSize = 32.sp, fontWeight = FontWeight.Bold, color = GOLD)
+        Text("${S.fromTrueNorth}  ·  ${Math.round(distance)} ${S.kmToMakkah}",
             fontSize = 12.sp, color = MUTED)
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(22.dp))
 
         // The dial turns with the phone; the needle stays pointing at the Qibla.
         Box(contentAlignment = Alignment.Center) {
@@ -723,49 +1094,51 @@ fun QiblaScreen(city: City) {
             )
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(18.dp))
 
         when {
             trueHeading == null -> {
-                Card(colors = CardDefaults.cardColors(
-                    containerColor = Color(0x22E8853F))) {
+                Panel(fill = Color(0x1AE8853F), stroke = Color(0x33E8853F)) {
                     Column(Modifier.padding(16.dp)) {
-                        Text("No compass on this phone", fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFE8853F), fontSize = 14.sp)
+                        Text(S.noCompass, fontWeight = FontWeight.SemiBold,
+                            color = AMBER, fontSize = 14.sp)
                         Spacer(Modifier.height(6.dp))
-                        Text("The bearing above is still correct. Face true north, " +
-                            "then turn ${Math.round(qibla)}\u00B0 clockwise.",
-                            fontSize = 13.sp)
+                        Text(S.noCompassHelp, fontSize = 13.sp)
                     }
                 }
             }
-            aligned -> Text("You are facing the Qibla", fontSize = 17.sp,
-                fontWeight = FontWeight.Bold, color = GREEN)
+            aligned -> Box(
+                Modifier
+                    .clip(CircleShape)
+                    .background(Color(0x224EC27F))
+                    .padding(horizontal = 18.dp, vertical = 9.dp),
+            ) {
+                Text(S.facingQibla, fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold, color = GREEN)
+            }
             turn != null && turn > 0 ->
-                Text("Turn right ${Math.round(turn)}\u00B0", fontSize = 17.sp,
+                Text("${S.turnRight} ${Math.round(turn)}°", fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold, color = GOLD)
             turn != null ->
-                Text("Turn left ${Math.round(-turn)}\u00B0", fontSize = 17.sp,
+                Text("${S.turnLeft} ${Math.round(-turn)}°", fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold, color = GOLD)
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(22.dp))
 
-        Card(Modifier.fillMaxWidth()) {
+        Panel(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("FOR AN ACCURATE READING", fontSize = 10.sp, color = MUTED,
-                    fontWeight = FontWeight.SemiBold)
+                Text(S.accurateReading, fontSize = 9.sp, color = MUTED,
+                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Spacer(Modifier.height(10.dp))
-                Text("Hold the phone flat, screen up.", fontSize = 13.sp)
+                Text(S.holdFlat, fontSize = 13.sp)
                 Spacer(Modifier.height(5.dp))
-                Text("Move away from metal, speakers, laptops and magnets \u2014 " +
-                    "they pull the compass badly.", fontSize = 13.sp)
+                Text(S.awayFromMetal, fontSize = 13.sp)
                 Spacer(Modifier.height(5.dp))
-                Text("If it drifts, wave the phone in a figure of eight to " +
-                    "recalibrate.", fontSize = 13.sp)
+                Text(S.figureEight, fontSize = 13.sp)
                 Spacer(Modifier.height(10.dp))
-                Text("Magnetic declination here is ${"%.1f".format(declination)}\u00B0, " +
-                    "already corrected for.", fontSize = 11.sp, color = MUTED)
+                Text("${S.declinationNote} ${"%.1f".format(declination)}°.",
+                    fontSize = 11.sp, color = MUTED)
             }
         }
 
@@ -786,10 +1159,8 @@ fun CompassDial(headingTrue: Float, qiblaBearing: Float, live: Boolean, aligned:
         val c = Offset(size.width / 2f, size.height / 2f)
         val r = size.minDimension / 2f - 14f
 
-        drawCircle(color = FAINT, radius = r, center = c,
-            style = Stroke(width = 2f))
-        drawCircle(color = FAINT, radius = r * 0.66f, center = c,
-            style = Stroke(width = 1f))
+        drawCircle(color = FAINT, radius = r, center = c, style = Stroke(width = 2f))
+        drawCircle(color = FAINT, radius = r * 0.66f, center = c, style = Stroke(width = 1f))
 
         // Tick marks every 15 degrees, turning with the phone.
         for (i in 0 until 24) {
@@ -810,7 +1181,7 @@ fun CompassDial(headingTrue: Float, qiblaBearing: Float, live: Boolean, aligned:
         // North marker.
         val na = Math.toRadians((-(if (live) headingTrue else 0f)).toDouble())
         drawCircle(
-            color = Color(0xFFE05555), radius = 7f,
+            color = RED, radius = 7f,
             center = Offset(c.x + ((r - 28f) * kotlin.math.sin(na)).toFloat(),
                             c.y - ((r - 28f) * kotlin.math.cos(na)).toFloat()),
         )
@@ -835,117 +1206,169 @@ fun CompassDial(headingTrue: Float, qiblaBearing: Float, live: Boolean, aligned:
     }
 }
 
-
 /**
- * Past days, so a prayer can be marked once it has actually been made up.
+ * Past days as a calendar, so a prayer can be marked once it has actually
+ * been made up.
  *
  * A qaza prayer is still owed and still prayed. Without this the streak
  * punishes someone permanently for one late Fajr, which is the opposite of
  * what a streak is for.
+ *
+ * A calendar rather than a list because a month is the unit people think in:
+ * the gaps in a streak are visible as gaps, and reaching back three weeks is
+ * two taps instead of a long scroll. Future days are drawn but not tappable —
+ * marking tomorrow's Fajr as prayed should not be possible.
  */
 @Composable
-fun HistoryDialog(
+fun CalendarDialog(
     prefs: android.content.SharedPreferences,
     today: LocalDate,
+    lang: Lang,
     onDismiss: () -> Unit,
     onChanged: () -> Unit,
 ) {
+    val S = LocalStr.current
     var version by remember { mutableIntStateOf(0) }
-    var openDay by remember { mutableStateOf<LocalDate?>(null) }
-    val days = remember { (0 until 60).map { today.minusDays(it.toLong()) } }
+    var shown by remember { mutableStateOf(today.withDayOfMonth(1)) }
+    var selected by remember { mutableStateOf<LocalDate?>(today) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-        title = { Text("Past days", fontSize = 17.sp) },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(S.done) } },
+        title = { Text(S.pastDays, fontSize = 17.sp) },
         text = {
-            Column {
-                Text("Tap a day, then tap each prayer you have offered \u2014 " +
-                    "including qaza you have since made up. A day with all five " +
-                    "counts towards your streak.",
-                    fontSize = 12.sp, color = MUTED)
-                Spacer(Modifier.height(10.dp))
+            Column(Modifier.verticalScroll(rememberScrollState())) {
 
-                LazyColumn(Modifier.height(370.dp)) {
-                    items(days) { d ->
-                        // `version` is read here so every write recomposes the row.
-                        val doneSet = run {
-                            version
-                            readDone(prefs, d.year, d.monthValue, d.dayOfMonth)
-                        }
-                        val count = Tracker.completedCount(doneSet)
-                        val isToday = d == today
-                        val isOpen = openDay == d
-                        val dayName = d.dayOfWeek.name.take(3).lowercase()
-                            .replaceFirstChar { it.uppercase() }
+                // --- month header ------------------------------------------
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = { shown = shown.minusMonths(1) }) {
+                        Text("‹", fontSize = 20.sp, color = GOLD)
+                    }
+                    Text(
+                        "${Strings.monthName(lang, shown.monthValue)} ${shown.year}",
+                        Modifier.weight(1f),
+                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                    )
+                    // Never page past the current month: there is nothing
+                    // there to mark.
+                    val canGoForward = shown.isBefore(today.withDayOfMonth(1))
+                    TextButton(
+                        onClick = { if (canGoForward) shown = shown.plusMonths(1) },
+                        enabled = canGoForward,
+                    ) {
+                        Text("›", fontSize = 20.sp,
+                            color = if (canGoForward) GOLD else Color(0x33FFFFFF))
+                    }
+                }
 
-                        Column(
-                            Modifier.fillMaxWidth()
-                                .clickable { openDay = if (isOpen) null else d }
-                        ) {
-                            Row(
-                                Modifier.fillMaxWidth().padding(vertical = 11.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    "$dayName ${d.dayOfMonth} " +
-                                        MONTHS[d.monthValue - 1].take(3) +
-                                        (if (isToday) "  \u00B7 today" else ""),
-                                    Modifier.weight(1f),
-                                    fontSize = 14.sp,
-                                    fontWeight = if (isToday) FontWeight.Bold
-                                                 else FontWeight.Normal,
-                                    color = if (isToday) GOLD else Color.Unspecified,
-                                )
-                                Text(
-                                    "$count/5", fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = when {
-                                        count == 5 -> GREEN
-                                        count == 0 -> RED
-                                        else -> GOLD
-                                    },
-                                )
-                                Text(
-                                    "  \u203A",
-                                    Modifier.rotate(if (isOpen) 90f else 0f),
-                                    fontSize = 15.sp, color = MUTED,
-                                )
-                            }
+                Spacer(Modifier.height(4.dp))
 
-                            if (isOpen) {
-                                Column(Modifier.padding(bottom = 10.dp)) {
-                                    Tracker.FARD.forEach { name ->
-                                        val on = doneSet.contains(name)
-                                        Row(
-                                            Modifier.fillMaxWidth()
-                                                .clickable {
-                                                    val next =
-                                                        if (on) doneSet - name
-                                                        else doneSet + name
-                                                    writeDone(prefs, d.year, d.monthValue,
-                                                        d.dayOfMonth, next)
-                                                    version++
-                                                    onChanged()
-                                                }
-                                                .padding(vertical = 8.dp, horizontal = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            Text(
-                                                if (on) "\u2713" else "\u25CB",
-                                                Modifier.width(28.dp),
-                                                fontSize = 16.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (on) GREEN else FAINT2,
-                                            )
-                                            Text(name, fontSize = 14.sp,
-                                                color = if (on) GREEN else Color.Unspecified)
-                                        }
-                                    }
+                // --- weekday header, Sunday first --------------------------
+                Row(Modifier.fillMaxWidth()) {
+                    for (i in 0..6) {
+                        Text(
+                            Strings.weekdayShort(lang, i),
+                            Modifier.weight(1f),
+                            fontSize = 10.sp, color = MUTED,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+
+                // --- the grid ----------------------------------------------
+                // dayOfWeek.value counts Monday as 1; %7 turns that into a
+                // Sunday-first column index, which is how calendars are
+                // printed in Pakistan.
+                val lead = shown.dayOfWeek.value % 7
+                val length = shown.lengthOfMonth()
+                val cells = lead + length
+                val weeks = (cells + 6) / 7
+
+                for (w in 0 until weeks) {
+                    Row(Modifier.fillMaxWidth()) {
+                        for (c in 0..6) {
+                            val index = w * 7 + c
+                            val dayNumber = index - lead + 1
+                            if (dayNumber < 1 || dayNumber > length) {
+                                Spacer(Modifier.weight(1f).height(44.dp))
+                            } else {
+                                val date = shown.withDayOfMonth(dayNumber)
+                                val future = date.isAfter(today)
+                                val count = run {
+                                    version   // read so a write recomposes the grid
+                                    Tracker.completedCount(
+                                        Prefs.readDone(prefs, date.year,
+                                            date.monthValue, date.dayOfMonth)
+                                    )
                                 }
+                                DayCell(
+                                    modifier = Modifier.weight(1f),
+                                    day = dayNumber,
+                                    count = count,
+                                    isToday = date == today,
+                                    isSelected = date == selected,
+                                    future = future,
+                                    onClick = { if (!future) selected = date },
+                                )
                             }
                         }
-                        HorizontalDivider(color = FAINT)
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+                Text(S.pastDaysHelp, fontSize = 11.sp, color = MUTED)
+                Spacer(Modifier.height(10.dp))
+                HorizontalDivider(color = FAINT)
+                Spacer(Modifier.height(8.dp))
+
+                // --- the selected day's prayers ----------------------------
+                val d = selected
+                if (d == null) {
+                    Text(S.pickADate, fontSize = 13.sp, color = MUTED)
+                } else {
+                    val doneSet = run {
+                        version
+                        Prefs.readDone(prefs, d.year, d.monthValue, d.dayOfMonth)
+                    }
+                    Text(
+                        "${Strings.weekdayShort(lang, d.dayOfWeek.value % 7)} " +
+                            "${d.dayOfMonth} ${Strings.monthName(lang, d.monthValue)} " +
+                            (if (d == today) "· ${S.today}" else ""),
+                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = GOLD,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Tracker.FARD.forEach { name ->
+                        val on = doneSet.contains(name)
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(R12)
+                                .clickable {
+                                    val next = if (on) doneSet - name else doneSet + name
+                                    Prefs.writeDone(prefs, d.year, d.monthValue,
+                                        d.dayOfMonth, next)
+                                    version++
+                                    onChanged()
+                                }
+                                .padding(vertical = 9.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (on) "✓" else "○",
+                                Modifier.width(28.dp),
+                                fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                                color = if (on) GREEN else FAINT2,
+                            )
+                            Text(Strings.prayerName(lang, name), fontSize = 14.sp,
+                                color = if (on) GREEN else Color.Unspecified)
+                        }
                     }
                 }
             }
@@ -953,21 +1376,118 @@ fun HistoryDialog(
     )
 }
 
+/**
+ * One square in the calendar. The fill says how the day went at a glance:
+ * green for all five, gold for a partial day, nothing for a blank one.
+ */
 @Composable
-fun CityPicker(onPick: (City) -> Unit, onDismiss: () -> Unit) {
+private fun DayCell(
+    modifier: Modifier,
+    day: Int,
+    count: Int,
+    isToday: Boolean,
+    isSelected: Boolean,
+    future: Boolean,
+    onClick: () -> Unit,
+) {
+    val fill = when {
+        future -> Color.Transparent
+        count == 5 -> Color(0x334EC27F)
+        count > 0 -> Color(0x22D9B45B)
+        else -> Color(0x0DFFFFFF)
+    }
+    val edge = when {
+        isSelected -> GOLD
+        isToday -> Color(0x66D9B45B)
+        else -> Color.Transparent
+    }
+
+    Box(
+        modifier
+            .height(44.dp)
+            .padding(2.dp)
+            .clip(R12)
+            .background(fill)
+            .border(BorderStroke(if (isSelected) 2.dp else 1.dp, edge), R12)
+            .clickable(enabled = !future) { onClick() }
+            .alpha(if (future) 0.28f else 1f),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                "$day",
+                fontSize = 13.sp,
+                fontWeight = if (isToday || isSelected) FontWeight.Bold else FontWeight.Normal,
+                color = when {
+                    count == 5 -> GREEN
+                    isToday -> GOLD
+                    else -> Color.Unspecified
+                },
+            )
+            if (!future && count in 1..4) {
+                Text("$count", fontSize = 8.sp, color = GOLD)
+            }
+        }
+    }
+}
+
+@Composable
+fun UpdateDialog(decision: UpdateDecision, onDismiss: () -> Unit) {
+    val S = LocalStr.current
+    val context = LocalContext.current
+    val info = decision.info ?: return
+    val forced = decision.action == UpdateAction.REQUIRED
+
+    AlertDialog(
+        // A forced update cannot be dismissed by tapping away or pressing back.
+        onDismissRequest = { if (!forced) onDismiss() },
+        confirmButton = {
+            TextButton(onClick = {
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl)))
+                }
+            }) { Text(S.downloadUpdate, color = GOLD, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = {
+            if (!forced) TextButton(onClick = onDismiss) { Text(S.later) }
+        },
+        title = {
+            Text(if (forced) S.updateRequired else S.updateAvailable, fontSize = 17.sp)
+        },
+        text = {
+            Column {
+                if (forced) {
+                    Text(S.updateBlockedNote, fontSize = 13.sp)
+                    Spacer(Modifier.height(10.dp))
+                }
+                Text(info.latestVersionName, fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold, color = GOLD)
+                if (info.notes.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(info.notes, fontSize = 13.sp)
+                }
+            }
+        },
+    )
+}
+
+@Composable
+fun CityPicker(lang: Lang, onPick: (City) -> Unit, onDismiss: () -> Unit) {
+    val S = LocalStr.current
     var query by remember { mutableStateOf("") }
     val results = remember(query) { Cities.search(query) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-        title = { Text("Choose city", fontSize = 17.sp) },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(S.close) } },
+        title = { Text(S.chooseCity, fontSize = 17.sp) },
         text = {
             Column {
                 OutlinedTextField(
                     value = query, onValueChange = { query = it },
-                    placeholder = { Text("Search city or province") },
+                    placeholder = { Text(S.searchCity) },
                     singleLine = true, modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
@@ -977,14 +1497,16 @@ fun CityPicker(onPick: (City) -> Unit, onDismiss: () -> Unit) {
                             Modifier.fillMaxWidth().clickable { onPick(c) }
                                 .padding(vertical = 12.dp)
                         ) {
-                            Text(c.name, Modifier.weight(1f), fontSize = 15.sp)
-                            Text(c.province, fontSize = 12.sp, color = MUTED)
+                            Text(Strings.cityName(lang, c.name), Modifier.weight(1f),
+                                fontSize = 15.sp)
+                            Text(Strings.provinceName(lang, c.province), fontSize = 12.sp,
+                                color = MUTED)
                         }
                         HorizontalDivider(color = FAINT)
                     }
                     if (results.isEmpty()) {
                         item {
-                            Text("No city matched. Try a nearby larger city.",
+                            Text(S.noCityMatched,
                                 Modifier.padding(vertical = 16.dp),
                                 fontSize = 13.sp, color = MUTED)
                         }
@@ -996,50 +1518,130 @@ fun CityPicker(onPick: (City) -> Unit, onDismiss: () -> Unit) {
 }
 
 @Composable
-fun SettingsDialog(current: Settings, onSave: (Settings) -> Unit, onDismiss: () -> Unit) {
+fun SettingsDialog(
+    current: Settings,
+    currentLang: Lang,
+    prefs: android.content.SharedPreferences,
+    onSave: (Settings, Lang) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val S = LocalStr.current
+    val context = LocalContext.current
     var method by remember { mutableStateOf(current.method) }
     var asr by remember { mutableStateOf(current.asr) }
+    var lang by remember { mutableStateOf(currentLang) }
+    var notifyPrayer by remember { mutableStateOf(Prefs.prayerAlerts(prefs)) }
+    var notifyQaza by remember { mutableStateOf(Prefs.qazaAlerts(prefs)) }
+    var notifyUpdate by remember { mutableStateOf(Prefs.updateAlerts(prefs)) }
+
+    val blocked = !Notifications.allowed(context)
 
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(onClick = { onSave(current.copy(method = method, asr = asr)) }) {
-                Text("Save")
-            }
+            TextButton(onClick = {
+                Prefs.setPrayerAlerts(prefs, notifyPrayer)
+                Prefs.setQazaAlerts(prefs, notifyQaza)
+                Prefs.setUpdateAlerts(prefs, notifyUpdate)
+                onSave(current.copy(method = method, asr = asr), lang)
+                // The switches only take effect once the alarms are redrawn.
+                runCatching { Scheduler.armAll(context) }
+            }) { Text(S.save) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-        title = { Text("Calculation", fontSize = 17.sp) },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(S.cancel) } },
+        title = { Text(S.settings, fontSize = 17.sp) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("ASR METHOD", fontSize = 10.sp, color = MUTED,
-                    fontWeight = FontWeight.SemiBold)
+
+                SectionLabel(S.language)
+                Lang.entries.forEach { l ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { lang = l }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = lang == l, onClick = { lang = l })
+                        Text(l.label, fontSize = 14.sp)
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+                SectionLabel(S.notifications)
+                if (blocked) {
+                    // Every switch below is dead until Android's own
+                    // permission is granted, so say so rather than letting
+                    // someone turn them all on and wonder why nothing arrives.
+                    Text(
+                        "${S.allowNotifications}. ${S.allowNotificationsHelp}",
+                        fontSize = 11.5.sp, color = AMBER,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+                SwitchRow(S.notifyPrayer, S.notifyPrayerHelp, notifyPrayer) {
+                    notifyPrayer = it
+                }
+                SwitchRow(S.notifyQaza, S.notifyQazaHelp, notifyQaza) { notifyQaza = it }
+                SwitchRow(S.notifyUpdate, S.notifyUpdateHelp, notifyUpdate) {
+                    notifyUpdate = it
+                }
                 Spacer(Modifier.height(4.dp))
+                Text(S.exactAlarmsNote, fontSize = 10.5.sp, color = MUTED)
+
+                Spacer(Modifier.height(14.dp))
+                SectionLabel(S.asrMethod)
                 AsrMethod.entries.forEach { a ->
-                    Row(Modifier.fillMaxWidth().clickable { asr = a }
-                        .padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { asr = a }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         RadioButton(selected = asr == a, onClick = { asr = a })
                         Text(a.label, fontSize = 14.sp)
                     }
                 }
-                Text("Most of Pakistan follows Hanafi. The two differ by around " +
-                    "30–60 minutes.", fontSize = 11.sp, color = MUTED)
+                Text(S.asrNote, fontSize = 11.sp, color = MUTED)
 
-                Spacer(Modifier.height(16.dp))
-                Text("FAJR / ISHA ANGLES", fontSize = 10.sp, color = MUTED,
-                    fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(14.dp))
+                SectionLabel(S.fajrIshaAngles)
                 CalcMethod.entries.forEach { m ->
-                    Row(Modifier.fillMaxWidth().clickable { method = m }
-                        .padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { method = m }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         RadioButton(selected = method == m, onClick = { method = m })
                         Text(m.label, fontSize = 13.sp)
                     }
                 }
-                Text("Karachi is the standard across Pakistan. Change it only if " +
-                    "your mosque follows something else.", fontSize = 11.sp, color = MUTED)
+                Text(S.methodNote, fontSize = 11.sp, color = MUTED)
             }
         },
     )
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(text, fontSize = 10.sp, color = GOLD,
+        fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+    Spacer(Modifier.height(4.dp))
+}
+
+@Composable
+private fun SwitchRow(
+    label: String,
+    help: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, fontSize = 14.sp)
+            Text(help, fontSize = 10.5.sp, color = MUTED)
+        }
+        Spacer(Modifier.width(8.dp))
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
 }

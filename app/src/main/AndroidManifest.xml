@@ -1,9 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- No permissions at all. Times are calculated on the device from the
-         selected city's coordinates, so there is no network and no location
-         access. -->
+    <!-- Prayer times need no network: they are calculated on the device from
+         the selected city's coordinates, and there is no location access.
+         INTERNET is here solely for the update check, which fetches one small
+         JSON file and fails open if it cannot. Remove this line and the app
+         still works completely; only the update prompt stops. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Android 13 and up: notifications are opt-in, asked for at runtime. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Alarms must survive a reboot, or Fajr quietly stops waking anyone. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Exact alarms. A prayer alert five minutes late is a wrong prayer
+         alert, and a qaza warning that slips past the deadline is worse than
+         none, so this app genuinely needs exactness rather than a convenient
+         wakeup window.
+
+         Two permissions for three eras of Android:
+           - up to API 30, nothing is needed;
+           - API 31-32, SCHEDULE_EXACT_ALARM, granted at install;
+           - API 33+, USE_EXACT_ALARM, granted automatically to alarm-clock
+             style apps, so nobody has to find a settings screen.
+
+         Worth knowing if this ever goes to the Play Store: USE_EXACT_ALARM is
+         restricted there to alarm and calendar apps and needs a declaration.
+         For an APK handed to family it is simply the right permission. The
+         code checks canScheduleExactAlarms() anyway and falls back to inexact
+         alarms rather than failing. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <application
         android:allowBackup="true"
@@ -21,5 +50,28 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Not exported: only this app's own alarms may trigger it. -->
+        <receiver
+            android:name=".AlertReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false" />
+
+        <!-- Exported, because the events it listens for come from the
+             system rather than from this app. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
