@@ -1,0 +1,72 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install API 36 platform
+        run: |
+          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      # --console=plain stops Gradle emitting thousands of progress-bar
+      # redraw lines, and --stacktrace is deliberately absent: it inflated
+      # the log to 25k lines without adding anything readable.
+      - name: Build release APK
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon --console=plain 2>&1 | tee /tmp/build.log
+
+      # On failure, pull just the lines that say what actually broke, and put
+      # them in the run summary so they can be read without opening the log.
+      - name: Errors only
+        if: failure()
+        run: |
+          {
+            echo '## Build errors'
+            echo '```'
+            grep -nE "^e: |error:|FAILURE:|Caused by:|Could not resolve|Unresolved reference|> Task .* FAILED" \
+              /tmp/build.log | head -80
+            echo '```'
+            echo '### Last 40 lines'
+            echo '```'
+            tail -40 /tmp/build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "---- errors ----"
+          grep -nE "^e: |error:|FAILURE:|Could not resolve|Unresolved reference" \
+            /tmp/build.log | head -80
+
+      - name: Upload full log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/build.log
+          if-no-files-found: ignore
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: namaz-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
