@@ -1,0 +1,113 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Android refuses to install an update unless it carries the same
+      # signature as the copy already on the phone. Without a key of our own
+      # the build falls back to a debug one, and the debug key is generated
+      # fresh on every runner -- so every build would be signed by a different
+      # "person" and every update would fail with "App not installed".
+      #
+      # The key itself lives in the KEYSTORE_BASE64 repository secret, never in
+      # this repo, which is public. Failing loudly here is deliberate: a build
+      # that quietly used the wrong key would only reveal itself weeks later,
+      # on someone else's phone.
+      - name: Restore the signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::The KEYSTORE_BASE64 secret is missing. Add it under Settings -> Secrets and variables -> Actions. Without it every build gets a different signature and updates will not install over the existing app."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > keystore.jks
+          echo "Signing key restored ($(stat -c%s keystore.jks) bytes)."
+
+      - name: Install API 36 platform
+        run: |
+          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      # --console=plain stops Gradle emitting thousands of progress-bar
+      # redraw lines, and --stacktrace is deliberately absent: it inflated
+      # the log to 25k lines without adding anything readable.
+      - name: Build release APK
+        env:
+          KEYSTORE_PASSWORD: NamazTimings2026
+          KEY_ALIAS: namaz
+          KEY_PASSWORD: NamazTimings2026
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon --console=plain 2>&1 | tee /tmp/build.log
+
+      # The fingerprint must be identical on every run. If it ever changes,
+      # updates stop installing, so it is printed where it can be compared
+      # rather than left to be discovered on a phone.
+      - name: Show the signature fingerprint
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          {
+            echo '## Signature'
+            echo 'This must be the same on every build, or updates will not install.'
+            echo '```'
+            "$APKSIGNER" verify --print-certs \
+              app/build/outputs/apk/release/app-release.apk \
+              | grep -i "SHA-256 digest" || echo "(could not read certificate)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # On failure, pull just the lines that say what actually broke, and put
+      # them in the run summary so they can be read without opening the log.
+      - name: Errors only
+        if: failure()
+        run: |
+          {
+            echo '## Build errors'
+            echo '```'
+            grep -nE "^e: |error:|FAILURE:|Caused by:|Could not resolve|Unresolved reference|> Task .* FAILED" \
+              /tmp/build.log | head -80
+            echo '```'
+            echo '### Last 40 lines'
+            echo '```'
+            tail -40 /tmp/build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "---- errors ----"
+          grep -nE "^e: |error:|FAILURE:|Could not resolve|Unresolved reference" \
+            /tmp/build.log | head -80
+
+      - name: Upload full log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/build.log
+          if-no-files-found: ignore
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: namaz-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error

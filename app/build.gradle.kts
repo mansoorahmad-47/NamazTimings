@@ -22,6 +22,7 @@ android {
         if (keystoreFile.exists()) {
             create("release") {
                 storeFile = keystoreFile
+                storeType = "PKCS12"
                 storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
                 keyAlias = System.getenv("KEY_ALIAS") ?: "namaz"
                 keyPassword = System.getenv("KEY_PASSWORD") ?: ""
