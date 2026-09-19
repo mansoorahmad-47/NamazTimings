@@ -61,6 +61,17 @@ jobs:
           set -o pipefail
           gradle assembleRelease --no-daemon --console=plain 2>&1 | tee /tmp/build.log
 
+      # Gradle always names its output app-release.apk. Renaming here rather
+      # than in build.gradle.kts is deliberate: the Gradle API for renaming a
+      # variant's output is deprecated in AGP 8 and reaches into internal
+      # classes, which is a poor trade for a cosmetic filename. A copy also
+      # leaves the original in place, so nothing downstream has to change.
+      - name: Name the APK properly
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk dist/NamazTimings.apk
+          ls -lh dist/
+
       # The fingerprint must be identical on every run. If it ever changes,
       # updates stop installing, so it is printed where it can be compared
       # rather than left to be discovered on a phone.
@@ -71,8 +82,7 @@ jobs:
             echo '## Signature'
             echo 'This must be the same on every build, or updates will not install.'
             echo '```'
-            "$APKSIGNER" verify --print-certs \
-              app/build/outputs/apk/release/app-release.apk \
+            "$APKSIGNER" verify --print-certs dist/NamazTimings.apk \
               | grep -i "SHA-256 digest" || echo "(could not read certificate)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -109,5 +119,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: namaz-apk
-          path: app/build/outputs/apk/release/*.apk
+          path: dist/NamazTimings.apk
           if-no-files-found: error

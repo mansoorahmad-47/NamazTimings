@@ -74,6 +74,19 @@ data class Str(
     val toBeatYourBest: String,
     val noStreakYet: String,
 
+    // first run and location
+    val welcomeTitle: String,
+    val welcomeBody: String,
+    val useMyLocation: String,
+    val chooseMyCity: String,
+    val finding: String,
+    val foundYouIn: String,
+    val locationFailed: String,
+    val locationTooFar: String,
+    val detectCity: String,
+    val locationPrivacy: String,
+    val changeAnyTime: String,
+
     // calendar
     val pickADate: String,
     val futureDay: String,
@@ -209,6 +222,22 @@ object Strings {
         toBeatYourBest = "to go to beat your record.",
         noStreakYet = "No streak yet — today can start one.",
 
+        welcomeTitle = "Where are you praying?",
+        welcomeBody = "Prayer times change from city to city. Peshawar's Maghrib " +
+            "is about eleven minutes after Lahore's, so picking the right place " +
+            "matters more than it sounds.",
+        useMyLocation = "Use my location",
+        chooseMyCity = "Choose my city",
+        finding = "Finding your location\u2026",
+        foundYouIn = "Nearest city",
+        locationFailed = "Could not get your location. Please choose your city.",
+        locationTooFar = "You seem to be outside Pakistan. Please choose the city " +
+            "whose times you want.",
+        detectCity = "Detect my city",
+        locationPrivacy = "Used only to pick the nearest city from the list. " +
+            "Nothing is sent anywhere and nothing is stored but the city name.",
+        changeAnyTime = "You can change this any time by tapping the city name.",
+
         pickADate = "Pick a day",
         futureDay = "Not here yet",
         markedPrayers = "marked",
@@ -343,6 +372,21 @@ object Strings {
         toBeatYourBest = "اپنا ریکارڈ توڑنے کے لیے باقی",
         noStreakYet = "ابھی کوئی تسلسل نہیں — آج سے شروع کریں۔",
 
+        welcomeTitle = "آپ کہاں نماز ادا کرتے ہیں؟",
+        welcomeBody = "نماز کے اوقات ہر شہر میں مختلف ہوتے ہیں۔ پشاور کی مغرب " +
+            "لاہور سے تقریباً گیارہ منٹ بعد ہوتی ہے، اس لیے درست شہر کا انتخاب اہم ہے۔",
+        useMyLocation = "میری لوکیشن استعمال کریں",
+        chooseMyCity = "میں خود شہر منتخب کروں گا",
+        finding = "آپ کی لوکیشن تلاش کی جا رہی ہے\u2026",
+        foundYouIn = "قریب ترین شہر",
+        locationFailed = "لوکیشن حاصل نہیں ہو سکی۔ براہِ کرم اپنا شہر منتخب کریں۔",
+        locationTooFar = "لگتا ہے آپ پاکستان سے باہر ہیں۔ براہِ کرم وہ شہر منتخب کریں " +
+            "جس کے اوقات آپ دیکھنا چاہتے ہیں۔",
+        detectCity = "میرا شہر خود معلوم کریں",
+        locationPrivacy = "صرف فہرست میں سے قریب ترین شہر منتخب کرنے کے لیے استعمال ہوتی ہے۔ " +
+            "کچھ بھی کہیں نہیں بھیجا جاتا، صرف شہر کا نام محفوظ ہوتا ہے۔",
+        changeAnyTime = "آپ شہر کے نام پر دبا کر اسے کسی بھی وقت تبدیل کر سکتے ہیں۔",
+
         pickADate = "دن منتخب کریں",
         futureDay = "ابھی نہیں آیا",
         markedPrayers = "نشان زد",
@@ -432,6 +476,9 @@ object Strings {
         s.completeAllFive, s.pastDays, s.pastDaysHelp, s.today,
         s.stillPreviousDay,
         s.longest, s.thisIsYourBest, s.toBeatYourBest, s.noStreakYet,
+        s.welcomeTitle, s.welcomeBody, s.useMyLocation, s.chooseMyCity,
+        s.finding, s.foundYouIn, s.locationFailed, s.locationTooFar,
+        s.detectCity, s.locationPrivacy, s.changeAnyTime,
         s.pickADate, s.futureDay, s.markedPrayers,
         s.notifications, s.notifyPrayer, s.notifyPrayerHelp, s.notifyQaza,
         s.notifyQazaHelp,

@@ -11,6 +11,15 @@
     <!-- Android 13 and up: notifications are opt-in, asked for at runtime. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Only to pick the nearest city from the built-in list, and only if the
+         user taps "Use my location". Coarse, not fine: the answer is one of 66
+         cities tens of kilometres apart, so cell-tower accuracy is already far
+         more than the feature needs, and asking for precise location would be
+         asking for more than it uses. Nothing is sent anywhere; only the city
+         name is stored. Decline it and the app works exactly as before, with
+         the city picked by hand. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <!-- Alarms must survive a reboot, or Fajr quietly stops waking anyone. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 

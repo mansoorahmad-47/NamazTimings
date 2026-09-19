@@ -39,6 +39,21 @@ object Prefs {
         prefs.edit().putStringSet(dateKey(y, m, d), value).apply()
     }
 
+    // --- first run ---------------------------------------------------------
+
+    /**
+     * Has the city ever been chosen?
+     *
+     * The `contains("city")` half is what stops the welcome screen appearing
+     * for people upgrading from an earlier version. They already picked a
+     * city, so being asked again would look like the update had lost it.
+     */
+    fun setupDone(prefs: SharedPreferences): Boolean =
+        prefs.getBoolean("setupDone", false) || prefs.contains("city")
+
+    fun markSetupDone(prefs: SharedPreferences) =
+        prefs.edit().putBoolean("setupDone", true).apply()
+
     // --- what the times are calculated from --------------------------------
 
     fun city(prefs: SharedPreferences): City =

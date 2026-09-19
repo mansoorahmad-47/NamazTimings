@@ -1,5 +1,10 @@
 package io.frontierlabs.namaz.core
 
+import kotlin.math.asin
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
+
 /**
  * Pakistani cities with coordinates.
  *
@@ -111,4 +116,51 @@ object Cities {
     }
 
     val provinces: List<String> = all.map { it.province }.distinct()
+
+    /**
+     * Straight-line distance in kilometres between a point and a city.
+     *
+     * Great-circle rather than flat, because Pakistan spans about 1,400 km and
+     * treating latitude and longitude as a flat grid would be out by tens of
+     * kilometres at the corners -- enough to pick the wrong city.
+     */
+    fun distanceKm(lat: Double, lon: Double, city: City): Double {
+        val rad = Math.PI / 180.0
+        val phi1 = lat * rad
+        val phi2 = city.lat * rad
+        val dPhi = (city.lat - lat) * rad
+        val dLon = (city.lon - lon) * rad
+        val a = sin(dPhi / 2) * sin(dPhi / 2) +
+            cos(phi1) * cos(phi2) * sin(dLon / 2) * sin(dLon / 2)
+        return 2 * 6371.0 * asin(minOf(1.0, sqrt(a)))
+    }
+
+    /**
+     * The closest city in the list to a set of coordinates, and how far away
+     * it is.
+     *
+     * The distance comes back with it on purpose. A phone that reports a
+     * location in Dubai would otherwise be silently told it is in Gwadar, and
+     * every prayer time would be wrong with nothing on screen to explain it.
+     * The caller is expected to check the distance and fall back to asking.
+     */
+    fun nearest(lat: Double, lon: Double): Pair<City, Double> {
+        var best = all.first()
+        var bestKm = Double.MAX_VALUE
+        for (c in all) {
+            val km = distanceKm(lat, lon, c)
+            if (km < bestKm) { bestKm = km; best = c }
+        }
+        return best to bestKm
+    }
+
+    /**
+     * How far a detected location may be from the nearest listed city before
+     * the app stops trusting it.
+     *
+     * Roughly the gap between two neighbouring cities in the thinnest part of
+     * Balochistan, so anywhere inside Pakistan resolves, while somewhere
+     * genuinely abroad does not.
+     */
+    const val MAX_TRUSTED_KM = 200.0
 }

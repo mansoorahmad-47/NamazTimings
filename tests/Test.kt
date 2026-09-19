@@ -602,6 +602,66 @@ fun main() {
             })
     }
 
+    println("\n-- finding the nearest city from a GPS fix --")
+    run {
+        // The strongest check: from a city's own coordinates, the nearest city
+        // must be that city. If any pair of entries has swapped or mistyped
+        // coordinates, this is what catches it.
+        val wrong = Cities.all.filter { c ->
+            Cities.nearest(c.lat, c.lon).first.name != c.name
+        }
+        check("every city is its own nearest city", wrong.isEmpty(),
+            wrong.map { it.name })
+        check("and the distance to itself is zero",
+            Cities.all.all { Cities.nearest(it.lat, it.lon).second < 0.01 })
+
+        // A point a few km outside a city still resolves to it.
+        val nearPew = Cities.nearest(34.05, 71.58)
+        check("just outside Peshawar resolves to Peshawar",
+            nearPew.first.name == "Peshawar", nearPew.first.name)
+        check("and reports a small distance", nearPew.second < 10, nearPew.second)
+
+        // Somewhere between two cities must pick the genuinely closer one,
+        // measured properly rather than by comparing raw coordinates.
+        val isb = Cities.byName("Islamabad")!!
+        val lhr = Cities.byName("Lahore")!!
+        val midpoint = Cities.nearest((isb.lat + lhr.lat) / 2, (isb.lon + lhr.lon) / 2)
+        check("a point between Islamabad and Lahore picks a real neighbour",
+            Cities.distanceKm((isb.lat + lhr.lat) / 2, (isb.lon + lhr.lon) / 2,
+                midpoint.first) <= Cities.all.minOf {
+                    Cities.distanceKm((isb.lat + lhr.lat) / 2,
+                        (isb.lon + lhr.lon) / 2, it)
+                } + 0.001,
+            midpoint.first.name)
+
+        // Distances against known separations, so the maths is not just
+        // self-consistent but actually right.
+        check("Karachi to Lahore is about 1020 km",
+            abs(Cities.distanceKm(khi.lat, khi.lon, lhr) - 1020) < 40,
+            Cities.distanceKm(khi.lat, khi.lon, lhr))
+        check("Islamabad to Lahore is about 270 km",
+            abs(Cities.distanceKm(isb.lat, isb.lon, lhr) - 270) < 25,
+            Cities.distanceKm(isb.lat, isb.lon, lhr))
+        // 145 km as the crow flies, not the ~180 km by road that gets quoted.
+        // Checked by hand: 1.52 degrees of longitude at this latitude is
+        // 141 km, and the 0.33 degrees of latitude adds 37 km.
+        check("Peshawar to Islamabad is about 145 km",
+            abs(Cities.distanceKm(pew.lat, pew.lon, isb) - 145) < 10,
+            Cities.distanceKm(pew.lat, pew.lon, isb))
+
+        // Abroad must not silently resolve to a Pakistani city. Without the
+        // distance check the app would put someone in Dubai on Gwadar's
+        // timetable and show nothing to explain why every time was wrong.
+        val dubai = Cities.nearest(25.2048, 55.2708)
+        check("Dubai is further than the trusted radius",
+            dubai.second > Cities.MAX_TRUSTED_KM, dubai.second)
+        val london = Cities.nearest(51.5074, -0.1278)
+        check("London is far outside the trusted radius",
+            london.second > 4000, london.second)
+        check("everywhere inside Pakistan is within the trusted radius",
+            Cities.all.all { Cities.nearest(it.lat, it.lon).second <= Cities.MAX_TRUSTED_KM })
+    }
+
     println("\n-- alerts: what fires and when --")
     run {
         val t = PrayerTimes.forDate(2026, 9, 19, pew)

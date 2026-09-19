@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.launch
 import io.frontierlabs.namaz.core.*
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -169,6 +170,9 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
     var pickingCity by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var update by remember { mutableStateOf<UpdateDecision?>(null) }
+    // Asked once, on the very first launch, and never again -- see
+    // Prefs.setupDone, which also treats an already-chosen city as "asked".
+    var needsSetup by remember { mutableStateOf(!Prefs.setupDone(prefs)) }
 
     // Android 13+ will not show anything at all until this is granted, and it
     // has to be asked for while a screen is up -- an alarm receiver cannot
@@ -177,7 +181,10 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
         ActivityResultContracts.RequestPermission()
     ) { runCatching { Scheduler.armAll(context) } }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(needsSetup) {
+        // One permission dialog at a time. The city comes first; notifications
+        // are asked for once the welcome screen is out of the way.
+        if (needsSetup) return@LaunchedEffect
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
@@ -188,7 +195,10 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
 
     // Fails open by design: any network or parsing problem leaves `update`
     // null and the app fully usable. See UpdateCheck's documentation.
-    LaunchedEffect(Unit) {
+    LaunchedEffect(needsSetup) {
+        // Not while the welcome screen is up: an update prompt on top of
+        // "where are you?" on a first launch is bewildering.
+        if (needsSetup) return@LaunchedEffect
         val decision = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             UpdateChecker.fetch(context)
         }
@@ -206,6 +216,7 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
     fun saveCity(c: City) {
         city = c
         prefs.edit().putString("city", c.name).apply()
+        Prefs.markSetupDone(prefs)
         // Moving 300 km west shifts every alarm by twenty minutes.
         runCatching { Scheduler.armAll(context) }
     }
@@ -284,6 +295,13 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
                     onYear = { shownYear = it },
                 )
             }
+        }
+
+        if (needsSetup) {
+            WelcomeDialog(
+                lang = lang,
+                onDone = { c -> saveCity(c); needsSetup = false },
+            )
         }
 
         if (pickingCity) {
@@ -1534,11 +1552,168 @@ fun UpdateDialog(decision: UpdateDecision, onDismiss: () -> Unit) {
     )
 }
 
+
+/**
+ * The first launch, and only the first.
+ *
+ * Asked once because the answer almost never changes: people pray where they
+ * live. Asking every launch would be noise, and guessing silently would be
+ * worse -- a wrong city is wrong by ten or twenty minutes, which is a missed
+ * prayer rather than a cosmetic error.
+ *
+ * Location is offered first because it is one tap, but the list is offered
+ * beside it, not behind it. Someone who does not want to grant location — or
+ * whose phone simply cannot get a fix indoors — should not have to refuse a
+ * system dialog before they are allowed to use the app. Every failure path
+ * ends at the same list.
+ *
+ * There is no way to dismiss this without choosing. Prayer times are
+ * meaningless without a place, so a "skip" would only produce an app quietly
+ * showing Islamabad's times to someone in Karachi.
+ */
+@Composable
+fun WelcomeDialog(lang: Lang, onDone: (City) -> Unit) {
+    val S = LocalStr.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var picking by remember { mutableStateOf(false) }
+    var locating by remember { mutableStateOf(false) }
+    var problem by remember { mutableStateOf<String?>(null) }
+
+    fun locate() {
+        locating = true
+        problem = null
+        scope.launch {
+            when (val r = LocationFinder.findCity(context)) {
+                is LocationFinder.Result.Found -> onDone(r.city)
+                is LocationFinder.Result.TooFar -> {
+                    locating = false
+                    problem = S.locationTooFar
+                    picking = true
+                }
+                LocationFinder.Result.Unavailable -> {
+                    locating = false
+                    problem = S.locationFailed
+                    picking = true
+                }
+            }
+        }
+    }
+
+    val askLocation = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        // A refusal is not a dead end: it just means choosing from the list,
+        // which is what the second button does anyway.
+        if (granted) locate() else picking = true
+    }
+
+    if (picking) {
+        CityPicker(
+            lang,
+            onPick = { onDone(it) },
+            // Backing out of the list returns to the welcome screen rather
+            // than into an app with no city set.
+            onDismiss = { picking = false },
+        )
+        return
+    }
+
+    AlertDialog(
+        onDismissRequest = { },
+        confirmButton = {},
+        title = {
+            Column {
+                Text(S.appName, fontSize = 11.sp, color = GOLD_DIM,
+                    fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                Spacer(Modifier.height(4.dp))
+                Text(S.welcomeTitle, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column {
+                Text(S.welcomeBody, fontSize = 13.sp, color = MUTED)
+                Spacer(Modifier.height(18.dp))
+
+                if (locating) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            Modifier.size(18.dp), color = GOLD, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text(S.finding, fontSize = 14.sp)
+                    }
+                } else {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(R16)
+                            .background(GOLD)
+                            .clickable {
+                                if (LocationFinder.hasPermission(context)) locate()
+                                else askLocation.launch(
+                                    Manifest.permission.ACCESS_COARSE_LOCATION)
+                            }
+                            .padding(vertical = 13.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(S.useMyLocation, fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold, color = Color(0xFF14161C))
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(R16)
+                            .border(BorderStroke(1.dp, FAINT2), R16)
+                            .clickable { picking = true }
+                            .padding(vertical = 13.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(S.chooseMyCity, fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                problem?.let {
+                    Spacer(Modifier.height(10.dp))
+                    Text(it, fontSize = 12.sp, color = AMBER)
+                }
+
+                Spacer(Modifier.height(14.dp))
+                Text(S.locationPrivacy, fontSize = 10.5.sp, color = MUTED)
+                Spacer(Modifier.height(6.dp))
+                Text(S.changeAnyTime, fontSize = 10.5.sp, color = MUTED)
+            }
+        },
+    )
+}
+
 @Composable
 fun CityPicker(lang: Lang, onPick: (City) -> Unit, onDismiss: () -> Unit) {
     val S = LocalStr.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
+    var locating by remember { mutableStateOf(false) }
+    var problem by remember { mutableStateOf<String?>(null) }
     val results = remember(query) { Cities.search(query) }
+
+    val askLocation = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) { problem = S.locationFailed; return@rememberLauncherForActivityResult }
+        locating = true
+        scope.launch {
+            when (val r = LocationFinder.findCity(context)) {
+                is LocationFinder.Result.Found -> onPick(r.city)
+                is LocationFinder.Result.TooFar -> { locating = false; problem = S.locationTooFar }
+                LocationFinder.Result.Unavailable -> { locating = false; problem = S.locationFailed }
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1547,6 +1722,37 @@ fun CityPicker(lang: Lang, onPick: (City) -> Unit, onDismiss: () -> Unit) {
         title = { Text(S.chooseCity, fontSize = 17.sp) },
         text = {
             Column {
+                TextButton(
+                    onClick = {
+                        problem = null
+                        if (LocationFinder.hasPermission(context)) {
+                            locating = true
+                            scope.launch {
+                                when (val r = LocationFinder.findCity(context)) {
+                                    is LocationFinder.Result.Found -> onPick(r.city)
+                                    is LocationFinder.Result.TooFar -> {
+                                        locating = false; problem = S.locationTooFar
+                                    }
+                                    LocationFinder.Result.Unavailable -> {
+                                        locating = false; problem = S.locationFailed
+                                    }
+                                }
+                            }
+                        } else {
+                            askLocation.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                        }
+                    },
+                    enabled = !locating,
+                ) {
+                    Text(
+                        if (locating) S.finding else "\u25CE  ${S.detectCity}",
+                        color = GOLD, fontSize = 13.sp,
+                    )
+                }
+                problem?.let {
+                    Text(it, fontSize = 11.5.sp, color = AMBER)
+                    Spacer(Modifier.height(4.dp))
+                }
                 OutlinedTextField(
                     value = query, onValueChange = { query = it },
                     placeholder = { Text(S.searchCity) },

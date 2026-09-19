@@ -14,7 +14,8 @@ Same route that worked for Makentication.
    contents, so the hidden `.github` folder comes along. If it doesn't, add
    `.github/workflows/build-apk.yml` by hand with **Add file → Create new file**.
 3. Open **Actions**, wait for the green tick, and download **namaz-apk** from
-   the Artifacts section at the bottom of the run.
+   the Artifacts section at the bottom of the run. Inside is
+   `NamazTimings.apk`.
 
 Or open the folder in Android Studio and **Build → Build APK(s)**.
 
@@ -94,6 +95,22 @@ selected city, with a live needle. Magnetic declination is applied, so the
 needle points at true Qibla rather than a couple of degrees off. The bearing
 and distance still show on phones with no magnetometer.
 
+**It asks where you are, once.** On the very first launch only, the app offers
+to find your city from your location — one tap, and it picks the nearest of the
+66. Decline, or fail to get a fix indoors, and it shows the list instead; every
+failure path lands in the same place. After that it never asks again, and the
+city is changed by tapping its name at the top, where there is also a "Detect
+my city" button for when you travel.
+
+The permission asked for is coarse location, not precise. The answer is one of
+66 cities tens of kilometres apart, so cell-tower accuracy is already far more
+than the feature needs, and asking for someone's exact position to choose
+between Peshawar and Lahore would be asking for more than it uses. Nothing is
+sent anywhere and nothing is kept but the city name. A location that turns out
+to be more than 200 km from every city on the list is rejected rather than
+used — otherwise a phone reporting Dubai would be quietly put on Gwadar's
+timetable with nothing on screen to explain why every time was wrong.
+
 **66 cities**, including all the ones you asked for: Peshawar, Rawalpindi,
 Islamabad, Mardan, Kohat, Mingora (Swat) and Lahore — plus Karachi, Quetta,
 Faisalabad, Multan, Gujranwala, Sialkot, Abbottabad, Bannu, D.I. Khan, Chitral,
@@ -131,7 +148,7 @@ Pakistan is UTC+5 year round with no daylight saving, which is built in.
 
 ## Accuracy, honestly
 
-The astronomy is verified against objective checks, not eyeballed. 220 tests
+The astronomy is verified against objective checks, not eyeballed. 231 tests
 cover it, including the ones that actually catch errors:
 
 - Solar declination hits ±23.44° at the solstices and 0° at the equinoxes.
@@ -253,7 +270,7 @@ Within a day every phone has been told. Nobody has to be asked to check.
   "latestVersionCode": 2,
   "latestVersionName": "1.1",
   "minSupportedVersionCode": 0,
-  "downloadUrl": "https://github.com/you/repo/releases/download/v1.1/app-release.apk",
+  "downloadUrl": "https://github.com/you/repo/releases/download/v1.2/NamazTimings.apk",
   "notes": "Adds notifications and the calendar"
 }
 ```
@@ -293,11 +310,12 @@ app/src/main/java/io/frontierlabs/namaz/
   core/UpdateCheck.kt   update JSON parsing and the block/prompt decision
   MainActivity.kt       Compose UI: today, monthly chart, calendar, settings
   Prefs.kt              the stored keys, shared by the UI and the receivers
+  LocationFinder.kt     coarse location to nearest city, with a timeout
   Notifications.kt      channels and the notifications themselves
   Scheduler.kt          turns Alerts decisions into AlarmManager alarms
   AlertReceiver.kt      an alarm fired: show it if it still matters, re-arm
   BootReceiver.kt       re-arm after reboot, clock change or reinstall
   UpdateReceiver.kt     the daily new-version check
-tests/Test.kt           220 tests, runnable on a plain JVM
+tests/Test.kt           231 tests, runnable on a plain JVM
 .github/workflows/      CI that builds the APK
 ```
