@@ -160,12 +160,41 @@ data class DayTimes(
     val makruhBeforeZuhr get() = (zuhr - 10) to zuhr
     val makruhBeforeMaghrib get() = (maghrib - 15) to maghrib
 
+    /** Length of the night, Maghrib to the next Subh Sadiq, in minutes. */
+    val nightLength: Int
+        get() = ((nextFajr.minutes + 1440) - maghrib.minutes) % 1440
+
+    /** Islamic midnight: the midpoint of the night, not 12:00 AM. */
+    val islamicMidnight: Clock get() = maghrib + (nightLength / 2)
+
     /** Tahajjud is best in the last third of the night. */
-    val lastThirdOfNight: Clock
-        get() {
-            val nightLength = ((nextFajr.minutes + 1440) - maghrib.minutes) % 1440
-            return maghrib + (nightLength * 2 / 3)
-        }
+    val lastThirdOfNight: Clock get() = maghrib + (nightLength * 2 / 3)
+
+    /** Tahajjud window: the last third of the night, ending at Subh Sadiq. */
+    val tahajjudStart get() = lastThirdOfNight
+    val tahajjudEnd get() = fajr
+
+    /**
+     * Sehri may be eaten through the night; the marker that matters is when it
+     * must stop. Islamic midnight is used as the practical start, since that
+     * is when the final portion of the night begins.
+     */
+    val sehriStart get() = islamicMidnight
+
+    /**
+     * Ishraq: prayed once the sun has fully risen, conventionally about 20
+     * minutes after sunrise, since prayer is not offered during the sunrise
+     * itself.
+     */
+    val ishraqStart get() = sunrise + 20
+    val ishraqEnd get() = sunrise + 45
+
+    /** Chasht (Duha): from the end of Ishraq until shortly before Zawal. */
+    val chashtStart get() = sunrise + 45
+    val chashtEnd get() = zuhr - 15
+
+    /** Zawal: the sun at its zenith, when prayer is not offered. */
+    val zawal get() = zuhr - 1
 
     fun list(): List<Triple<String, Clock, Clock>> = listOf(
         Triple("Fajr", fajr, fajrEnd),
@@ -173,6 +202,37 @@ data class DayTimes(
         Triple("Asr", asr, asrEnd),
         Triple("Maghrib", maghrib, maghribEnd),
         Triple("Isha", isha, ishaEnd),
+    )
+
+    /**
+     * Everything for one day, in the order it happens through the night and
+     * day. `end` is null where only a single moment applies.
+     */
+    fun fullDay(): List<Row> = listOf(
+        Row("Sehri starts", sehriStart, null, "Islamic midnight"),
+        Row("Tahajjud", tahajjudStart, tahajjudEnd, "Last third of the night"),
+        Row("Sehri ends", sehriEnd, null, "Stop eating"),
+        Row("Fajr", fajr, fajrEnd, "Qaza after sunrise"),
+        Row("Sunrise", sunrise, null, null),
+        Row("Avoid prayer", makruhAfterSunrise.first, makruhAfterSunrise.second,
+            "Sun still rising"),
+        Row("Ishraq", ishraqStart, ishraqEnd, null),
+        Row("Chasht (Duha)", chashtStart, chashtEnd, null),
+        Row("Avoid prayer", makruhBeforeZuhr.first, makruhBeforeZuhr.second, "Zawal"),
+        Row("Zuhr", zuhr, zuhrEnd, "Qaza after Asr"),
+        Row("Asr", asr, asrEnd, "Qaza after sunset"),
+        Row("Avoid prayer", makruhBeforeMaghrib.first, makruhBeforeMaghrib.second,
+            "Sun setting"),
+        Row("Iftar", iftar, null, "Open the fast"),
+        Row("Maghrib", maghrib, maghribEnd, "Qaza after Isha"),
+        Row("Isha", isha, ishaEnd, "Qaza after Subh Sadiq"),
+    )
+
+    data class Row(
+        val label: String,
+        val start: Clock,
+        val end: Clock?,
+        val note: String?,
     )
 }
 

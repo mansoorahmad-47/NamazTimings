@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,8 +37,21 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun NamazTheme(content: @Composable () -> Unit) =
-    MaterialTheme(colorScheme = darkColorScheme(), content = content)
+fun NamazTheme(content: @Composable () -> Unit) {
+    // The Surface is not decoration. Without one, Compose has no background to
+    // derive a content colour from, so Text with no explicit colour falls back
+    // to black -- which is why the month table was unreadable. The Surface
+    // paints the dark background and sets the matching light text colour for
+    // everything inside it.
+    MaterialTheme(colorScheme = darkColorScheme()) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.onBackground,
+            content = content,
+        )
+    }
+}
 
 private val GOLD = Color(0xFFD9B45B)
 private val GREEN = Color(0xFF4EC27F)
@@ -81,6 +95,8 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
     }
 
     val today = remember { LocalDate.now(PK) }
+    var shownMonth by remember { mutableIntStateOf(today.monthValue) }
+    var shownYear by remember { mutableIntStateOf(today.year) }
     val times = remember(city, settings) {
         PrayerTimes.forDate(today.year, today.monthValue, today.dayOfMonth, city, settings)
     }
@@ -112,7 +128,13 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
 
         when (tab) {
             0 -> TodayScreen(city, times, settings)
-            else -> MonthScreen(city, settings, today.year, today.monthValue)
+            else -> MonthScreen(
+                city, settings, shownYear, shownMonth,
+                isCurrentMonth = shownMonth == today.monthValue && shownYear == today.year,
+                todayDay = today.dayOfMonth,
+                onMonth = { shownMonth = it },
+                onYear = { shownYear = it },
+            )
         }
     }
 
@@ -223,6 +245,8 @@ fun TodayScreen(city: City, t: DayTimes, settings: Settings) {
         Text("Calculated for ${city.name} (${city.lat}°N, ${city.lon}°E). " +
             "Local mosques sometimes adjust by a few minutes — follow your " +
             "masjid where they differ.", fontSize = 11.sp, color = MUTED)
+        Spacer(Modifier.height(24.dp))
+        Footer()
         Spacer(Modifier.height(40.dp))
     }
 }
@@ -248,20 +272,63 @@ private fun MiniRow(label: String, value: String) {
 }
 
 @Composable
-fun MonthScreen(city: City, settings: Settings, year: Int, month: Int) {
+fun MonthScreen(
+    city: City,
+    settings: Settings,
+    year: Int,
+    month: Int,
+    isCurrentMonth: Boolean,
+    todayDay: Int,
+    onMonth: (Int) -> Unit,
+    onYear: (Int) -> Unit,
+) {
     val rows = remember(city, settings, year, month) {
         PrayerTimes.forMonth(year, month, city, settings)
     }
-    val today = remember { LocalDate.now(PK).dayOfMonth }
-    val monthName = remember(month) {
-        listOf("January", "February", "March", "April", "May", "June", "July",
-            "August", "September", "October", "November", "December")[month - 1]
-    }
+    var expanded by remember(year, month) { mutableStateOf(-1) }
 
     Column(Modifier.fillMaxSize()) {
-        Text("$monthName $year · ${city.name}",
-            Modifier.padding(16.dp, 12.dp, 16.dp, 6.dp),
-            fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+
+        // Month picker: all twelve, always reachable.
+        LazyRow(
+            Modifier.fillMaxWidth().padding(vertical = 10.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(MONTHS.size) { i ->
+                val m = i + 1
+                val on = m == month
+                Box(
+                    Modifier
+                        .background(
+                            if (on) GOLD else Color(0x22FFFFFF),
+                            RoundedCornerShape(20.dp)
+                        )
+                        .clickable { onMonth(m) }
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        MONTHS[i].take(3),
+                        fontSize = 13.sp,
+                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                        color = if (on) Color(0xFF1A1A1A) else MUTED,
+                    )
+                }
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("${MONTHS[month - 1]} $year", Modifier.weight(1f),
+                fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            TextButton(onClick = { onYear(year - 1) }) { Text("\u2039", color = GOLD) }
+            Text("$year", fontSize = 13.sp, color = MUTED)
+            TextButton(onClick = { onYear(year + 1) }) { Text("\u203A", color = GOLD) }
+        }
+        Text("Tap any day for the full timetable", Modifier.padding(16.dp, 0.dp, 16.dp, 8.dp),
+            fontSize = 11.sp, color = MUTED)
 
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
             listOf("Day", "Fajr", "Zuhr", "Asr", "Maghrib", "Isha").forEachIndexed { i, h ->
@@ -273,29 +340,103 @@ fun MonthScreen(city: City, settings: Settings, year: Int, month: Int) {
 
         LazyColumn(Modifier.weight(1f)) {
             items(rows) { (day, t) ->
-                val isToday = day == today
-                Row(
-                    Modifier.fillMaxWidth()
-                        .background(if (isToday) Color(0x22D9B45B) else Color.Transparent)
-                        .padding(horizontal = 12.dp, vertical = 9.dp)
+                val isToday = isCurrentMonth && day == todayDay
+                val isOpen = expanded == day
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(
+                            when {
+                                isOpen -> Color(0x18FFFFFF)
+                                isToday -> Color(0x22D9B45B)
+                                else -> Color.Transparent
+                            }
+                        )
+                        .clickable { expanded = if (isOpen) -1 else day }
                 ) {
-                    Text("$day", Modifier.weight(0.6f), fontSize = 12.sp,
-                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isToday) GOLD else MUTED)
-                    listOf(t.fajr, t.zuhr, t.asr, t.maghrib, t.isha).forEach {
-                        Text(it.format12().removeSuffix(" AM").removeSuffix(" PM"),
-                            Modifier.weight(1f), fontSize = 12.sp,
-                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal)
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+                        Text("$day", Modifier.weight(0.6f), fontSize = 12.sp,
+                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isToday) GOLD else MUTED)
+                        listOf(t.fajr, t.zuhr, t.asr, t.maghrib, t.isha).forEach {
+                            Text(
+                                it.format12().removeSuffix(" AM").removeSuffix(" PM"),
+                                Modifier.weight(1f), fontSize = 12.sp,
+                                fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        }
+                    }
+
+                    if (isOpen) {
+                        Column(Modifier.padding(16.dp, 2.dp, 16.dp, 16.dp)) {
+                            Text(
+                                "${MONTHS[month - 1]} $day, $year \u00B7 ${city.name}",
+                                fontSize = 12.sp, color = GOLD,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            t.fullDay().forEach { row ->
+                                val avoid = row.label == "Avoid prayer"
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(Modifier.weight(1.25f)) {
+                                        Text(row.label, fontSize = 13.sp,
+                                            color = if (avoid) Color(0xFFE8853F)
+                                                    else Color.Unspecified)
+                                        row.note?.let {
+                                            Text(it, fontSize = 10.sp, color = MUTED)
+                                        }
+                                    }
+                                    Text(row.start.format12(), Modifier.weight(0.85f),
+                                        fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text(row.end?.format12() ?: "\u2014",
+                                        Modifier.weight(0.85f), fontSize = 12.sp,
+                                        color = MUTED, textAlign = TextAlign.End)
+                                }
+                                HorizontalDivider(color = FAINT)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Left column is the start, right column is when the " +
+                                    "window closes. After that a prayer becomes qaza.",
+                                fontSize = 10.5.sp, color = MUTED,
+                            )
+                        }
                     }
                 }
                 HorizontalDivider(color = FAINT)
             }
             item {
-                Text("Fajr is AM; Zuhr, Asr, Maghrib and Isha are PM.",
-                    Modifier.padding(16.dp), fontSize = 11.sp, color = MUTED)
-                Spacer(Modifier.height(30.dp))
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text("Fajr is AM; Zuhr, Asr, Maghrib and Isha are PM.",
+                        fontSize = 11.sp, color = MUTED)
+                    Spacer(Modifier.height(20.dp))
+                    Footer()
+                    Spacer(Modifier.height(30.dp))
+                }
             }
         }
+    }
+}
+
+private val MONTHS = listOf(
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+@Composable
+fun Footer() {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        HorizontalDivider(color = FAINT)
+        Spacer(Modifier.height(14.dp))
+        Text("Developed by Mansoor Ahmad", fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold, color = GOLD)
+        Spacer(Modifier.height(4.dp))
+        Text("Times are calculated, not fetched. Follow your local masjid " +
+            "where it differs.", fontSize = 10.5.sp, color = MUTED,
+            textAlign = TextAlign.Center)
     }
 }
 
