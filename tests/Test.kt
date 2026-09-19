@@ -158,9 +158,11 @@ fun main() {
         pw.ishaEnd.minutes <= pw.fajr.minutes,
         "Isha until ${pw.ishaEnd.format12()}, Fajr ${pw.fajr.format12()}")
     check("Isha is still open just before its end",
-        Tracker.inWindow(Clock(pw.ishaEnd.minutes - 1), pw.isha, pw.ishaEnd))
-    check("Isha is closed at Fajr",
-        !Tracker.inWindow(pw.fajr, pw.isha, pw.ishaEnd))
+        Tracker.statusOf(Tracker.endInDay(pw.isha, pw.ishaEnd) - 1,
+            pw.isha, pw.ishaEnd, false) == PrayerStatus.DUE)
+    check("Isha is closed once Fajr arrives",
+        Tracker.statusOf(pw.fajr.minutes + 1440, pw.isha, pw.ishaEnd, false)
+            == PrayerStatus.MISSED)
 
     println("\n-- Sehri and Iftar --")
     val r = PrayerTimes.forDate(2027, 2, 20, khi)   // around Ramadan
@@ -299,56 +301,100 @@ fun main() {
         (0..359).all { abs(Qibla.turnFrom(it.toDouble(), 255.0)) <= 180.0 })
 
 
-    println("\n-- prayer windows: the Isha midnight wrap --")
+    println("\n-- the prayer day turns at Fajr, not midnight --")
     val td = PrayerTimes.forDate(2026, 9, 19, isb)   // Isha 7:33 PM, next Fajr 4:31 AM
-    check("inside Isha at 9 PM",
-        Tracker.inWindow(Clock(21 * 60), td.isha, td.ishaEnd))
-    // The bug this guards: a naive start<=now<end marks Isha missed at midnight,
-    // which would break a user's streak every single night.
-    check("still inside Isha at 1 AM",
-        Tracker.inWindow(Clock(60), td.isha, td.ishaEnd))
-    check("no longer inside Isha at 6 AM",
-        !Tracker.inWindow(Clock(6 * 60), td.isha, td.ishaEnd))
-    check("not inside Isha at noon",
-        !Tracker.inWindow(Clock(12 * 60), td.isha, td.ishaEnd))
-    check("inside Zuhr just after it starts",
-        Tracker.inWindow(Clock(td.zuhr.minutes + 5), td.zuhr, td.zuhrEnd))
-    check("not inside Zuhr once Asr begins",
-        !Tracker.inWindow(Clock(td.asr.minutes), td.zuhr, td.zuhrEnd))
+    run {
+        val fajr = td.fajr.minutes
 
-    println("\n-- prayer status --")
+        check("mid-afternoon belongs to today",
+            Tracker.prayerDay(15 * 60, fajr) == PrayerDay(0, 15 * 60))
+        check("late evening belongs to today",
+            Tracker.prayerDay(23 * 60, fajr) == PrayerDay(0, 23 * 60))
+
+        // The reported bug: at 00:01 the five prayers flipped to the next
+        // day's, wiping four already-offered prayers off the screen and
+        // recording a finished day as unfinished.
+        check("one minute past midnight still belongs to yesterday",
+            Tracker.prayerDay(1, fajr) == PrayerDay(-1, 1441),
+            Tracker.prayerDay(1, fajr))
+        check("three in the morning still belongs to yesterday",
+            Tracker.prayerDay(3 * 60, fajr) == PrayerDay(-1, 3 * 60 + 1440))
+        check("one minute before Fajr still belongs to yesterday",
+            Tracker.prayerDay(fajr - 1, fajr).dayOffset == -1)
+        check("Fajr itself starts the new day",
+            Tracker.prayerDay(fajr, fajr) == PrayerDay(0, fajr))
+        check("the count never goes backwards across the boundary",
+            Tracker.prayerDay(fajr - 1, fajr).dayMinutes >
+                Tracker.prayerDay(23 * 60, fajr).dayMinutes)
+    }
+
+    println("\n-- prayer status on the prayer-day scale --")
     check("before its time: upcoming",
-        Tracker.statusOf(Clock(td.fajr.minutes - 30), td.fajr, td.fajrEnd, false)
+        Tracker.statusOf(td.fajr.minutes - 30, td.fajr, td.fajrEnd, false)
             == PrayerStatus.UPCOMING)
     check("during its window: due",
-        Tracker.statusOf(Clock(td.fajr.minutes + 10), td.fajr, td.fajrEnd, false)
+        Tracker.statusOf(td.fajr.minutes + 10, td.fajr, td.fajrEnd, false)
             == PrayerStatus.DUE)
     check("after its window, unmarked: missed",
-        Tracker.statusOf(Clock(td.sunrise.minutes + 30), td.fajr, td.fajrEnd, false)
+        Tracker.statusOf(td.sunrise.minutes + 30, td.fajr, td.fajrEnd, false)
             == PrayerStatus.MISSED)
     check("marked stays done even after the window",
-        Tracker.statusOf(Clock(td.sunrise.minutes + 30), td.fajr, td.fajrEnd, true)
+        Tracker.statusOf(td.sunrise.minutes + 30, td.fajr, td.fajrEnd, true)
             == PrayerStatus.DONE)
     check("marked is done even before its time",
-        Tracker.statusOf(Clock(0), td.fajr, td.fajrEnd, true) == PrayerStatus.DONE)
-    check("Isha is never missed at 1 AM on its own day",
-        Tracker.statusOf(Clock(60), td.isha, td.ishaEnd, false) != PrayerStatus.MISSED,
-        Tracker.statusOf(Clock(60), td.isha, td.ishaEnd, false))
+        Tracker.statusOf(0, td.fajr, td.fajrEnd, true) == PrayerStatus.DONE)
+    check("inside Zuhr just after it starts",
+        Tracker.statusOf(td.zuhr.minutes + 5, td.zuhr, td.zuhrEnd, false)
+            == PrayerStatus.DUE)
+    check("Zuhr is missed once Asr begins",
+        Tracker.statusOf(td.asr.minutes, td.zuhr, td.zuhrEnd, false)
+            == PrayerStatus.MISSED)
+    check("Isha is due at 9 PM",
+        Tracker.statusOf(21 * 60, td.isha, td.ishaEnd, false) == PrayerStatus.DUE)
+    // A naive start<=now<end would mark Isha missed the moment midnight
+    // passed, breaking a user's streak every single night.
+    check("Isha is still due at 1 AM on its own prayer day",
+        Tracker.statusOf(1440 + 60, td.isha, td.ishaEnd, false) == PrayerStatus.DUE)
+    check("at 1 AM, yesterday's morning prayers read as missed, not upcoming",
+        listOf(td.fajr to td.fajrEnd, td.zuhr to td.zuhrEnd, td.asr to td.asrEnd)
+            .all { (st, en) ->
+                Tracker.statusOf(1440 + 60, st, en, false) == PrayerStatus.MISSED
+            })
+
+    println("\n-- marking is only offered once the azan has been called --")
+    check("Fajr cannot be marked before Fajr",
+        !Tracker.hasStarted(td.fajr.minutes - 1, td.fajr))
+    check("Fajr can be marked from its first minute",
+        Tracker.hasStarted(td.fajr.minutes, td.fajr))
+    check("Isha cannot be marked at noon",
+        !Tracker.hasStarted(12 * 60, td.isha))
+    check("Isha can be marked at 1 AM on its own prayer day",
+        Tracker.hasStarted(1440 + 60, td.isha))
+    check("every prayer of a finished day can be marked",
+        td.list().all { (_, st, _) -> Tracker.hasStarted(2880, st) })
+    check("nothing after Zuhr can be marked at midday",
+        td.list().filter { it.second.minutes > td.zuhr.minutes }
+            .none { Tracker.hasStarted(td.zuhr.minutes, it.second) })
 
     println("\n-- current prayer on the front page --")
-    val cur = Tracker.currentPrayer(Clock(td.asr.minutes + 20), td)
+    val cur = Tracker.currentPrayer(td.asr.minutes + 20, td)
     check("mid-afternoon the current prayer is Asr", cur?.first == "Asr", cur?.first)
     check("its end is Maghrib", cur?.third == td.maghrib)
     check("countdown to qaza is positive",
-        Tracker.minutesUntil(Clock(td.asr.minutes + 20), td.maghrib) > 0)
+        Tracker.minutesLeft(td.asr.minutes + 20, td.asr, td.maghrib) > 0)
     check("nothing is due between sunrise and Zuhr",
-        Tracker.currentPrayer(Clock(td.sunrise.minutes + 60), td) == null,
-        Tracker.currentPrayer(Clock(td.sunrise.minutes + 60), td)?.first)
+        Tracker.currentPrayer(td.sunrise.minutes + 60, td) == null,
+        Tracker.currentPrayer(td.sunrise.minutes + 60, td)?.first)
     check("Isha is current at 11 PM",
-        Tracker.currentPrayer(Clock(23 * 60), td)?.first == "Isha")
-    check("Isha is still current at 2 AM",
-        Tracker.currentPrayer(Clock(2 * 60), td)?.first == "Isha",
-        Tracker.currentPrayer(Clock(2 * 60), td)?.first)
+        Tracker.currentPrayer(23 * 60, td)?.first == "Isha")
+    check("Isha is still current at 2 AM on its own prayer day",
+        Tracker.currentPrayer(1440 + 2 * 60, td)?.first == "Isha",
+        Tracker.currentPrayer(1440 + 2 * 60, td)?.first)
+    check("Isha's remaining time shrinks as the night goes on",
+        Tracker.minutesLeft(1440 + 60, td.isha, td.ishaEnd) <
+            Tracker.minutesLeft(23 * 60, td.isha, td.ishaEnd))
+    check("nothing is left once the window has closed",
+        Tracker.minutesLeft(2000, td.fajr, td.fajrEnd) == 0)
     check("countdown wraps correctly across midnight",
         Tracker.minutesUntil(Clock(23 * 60), Clock(60)) == 120,
         Tracker.minutesUntil(Clock(23 * 60), Clock(60)))
@@ -624,8 +670,20 @@ fun main() {
         val t = PrayerTimes.forDate(2026, 9, 19, isb)
         val tm = PrayerTimes.forDate(2026, 9, 20, isb)
 
-        val atDawn = Alerts.toArm(t, tm, nowMinutes = 3 * 60)
+        val yd = PrayerTimes.forDate(2026, 9, 18, isb)
+        val atDawn = Alerts.toArm(yd, t, tm, nowMinutes = 3 * 60)
         check("arming at 3 AM gives ten alarms", atDawn.size == 10, atDawn.size)
+        // At 3 AM the Isha actually running belongs to YESTERDAY, and its
+        // qaza warning is roughly ninety minutes away. Building the list from
+        // today and tomorrow alone puts that warning a full day late, so the
+        // one alert the user needed never arrives.
+        val imminent = atDawn.first()
+        check("the next alarm at 3 AM is yesterday's Isha qaza warning",
+            imminent.kind == AlertKind.QAZA_WARNING &&
+                imminent.prayer == "Isha" && imminent.fromDayOffset == -1,
+            imminent)
+        check("and it is within two hours, not a day away",
+            imminent.at - 3 * 60 in 1..120, imminent.at - 3 * 60)
         check("no two alarms share a slot",
             atDawn.map { it.requestCode }.toSet().size == atDawn.size)
         check("everything armed is in the future",
@@ -635,7 +693,7 @@ fun main() {
 
         // Late at night almost nothing is left today, so the list has to reach
         // into tomorrow or the chain dies overnight.
-        val lateNight = Alerts.toArm(t, tm, nowMinutes = 23 * 60 + 30)
+        val lateNight = Alerts.toArm(yd, t, tm, nowMinutes = 23 * 60 + 30)
         check("arming at 11:30 PM still covers tomorrow",
             lateNight.size == 10, lateNight.size)
         check("tomorrow's Fajr is armed",
@@ -646,8 +704,13 @@ fun main() {
 
         // The distinction that caused a real bug: an alert can ring tomorrow
         // about a prayer that belongs to today. Whoever fires it has to read
-        // the right day's marked prayers.
-        val ishaWarn = atDawn.first {
+        // the right day's marked prayers. Arming at midday, when yesterday is
+        // entirely behind us, isolates that case.
+        val atNoon = Alerts.toArm(yd, t, tm, nowMinutes = 12 * 60)
+        check("nothing from yesterday survives a midday arming",
+            atNoon.none { it.fromDayOffset == -1 },
+            atNoon.filter { it.fromDayOffset == -1 })
+        val ishaWarn = atNoon.first {
             it.prayer == "Isha" && it.kind == AlertKind.QAZA_WARNING
         }
         check("today's Isha warning rings tomorrow about today's prayer",
@@ -658,10 +721,10 @@ fun main() {
         check("tomorrow's Fajr rings tomorrow about tomorrow's prayer",
             tomorrowFajr.dayOffset == 1 && tomorrowFajr.fromDayOffset == 1,
             tomorrowFajr)
-        check("everything still ahead today belongs to today",
-            atDawn.filter { it.dayOffset == 0 }.all { it.fromDayOffset == 0 })
+        check("anything still ringing today belongs to today or earlier",
+            atNoon.filter { it.dayOffset == 0 }.all { it.fromDayOffset <= 0 })
         check("a prayer never belongs to a day after the one it rings on",
-            (atDawn + lateNight).all { it.fromDayOffset <= it.dayOffset })
+            (atDawn + atNoon + lateNight).all { it.fromDayOffset <= it.dayOffset })
     }
 
     println("\n-- alerts: staying quiet when it should --")

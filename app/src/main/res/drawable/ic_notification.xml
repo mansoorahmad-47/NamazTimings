@@ -3,9 +3,13 @@
     Notification small icon.
 
     Android draws the small icon as a flat silhouette: only the alpha channel
-    survives, every colour is replaced by the system tint. So this is pure
+    survives and every colour is replaced by the system tint. So this is pure
     white on transparent, and the crescent is cut out with evenOdd rather than
     drawn as two overlapping shapes, which would fill solid once tinted.
+
+    A crescent rather than the launcher's mosque: at 24dp a dome with minarets
+    collapses into a blob, while a crescent stays a crescent. The cutting
+    circle breaks clear through the outer edge, or the result is a ring.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
@@ -15,5 +19,5 @@
     <path
         android:fillColor="#FFFFFFFF"
         android:fillType="evenOdd"
-        android:pathData="M12,3 a9,9 0 1,0 0,18 a9,9 0 1,0 0,-18 Z M15,4.5 a7.5,7.5 0 1,0 0,15 a7.5,7.5 0 1,0 0,-15 Z" />
+        android:pathData="M12,3 a9,9 0 1,0 0,18 a9,9 0 1,0 0,-18 Z M15.2,3.4 a7.8,7.8 0 1,0 0,15.6 a7.8,7.8 0 1,0 0,-15.6 Z" />
 </vector>

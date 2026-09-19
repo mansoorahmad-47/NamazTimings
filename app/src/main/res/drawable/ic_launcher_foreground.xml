@@ -1,11 +1,69 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Launcher icon, foreground layer.
+
+    A mosque in silhouette: dome, cornice, two minarets, a crescent finial.
+    Chosen over the usual crescent-and-star because a solid silhouette still
+    reads at 48dp, where thin points turn to mush, and because every second
+    app on the phone is already a crescent and a star.
+
+    Two golds rather than a gradient: the brighter one catches the dome, the
+    cornice and the minaret caps, the deeper one sits back on the body and the
+    shafts. That reads as light falling from above, and unlike a gradient it
+    does not turn to mud when the icon is scaled down.
+
+    Note the crescent. Its cutting circle deliberately breaks clear through the
+    right-hand edge of the outer one; sitting it wholly inside draws a ring
+    with a nick in it, which is exactly what the first attempt looked like.
+
+    The 108x108 canvas only shows its middle 72x72 once a launcher masks it, so
+    nothing here strays outside a circle of radius 33 around (54,54). The
+    bottom corner of a minaret is the closest call.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp" android:height="108dp"
-    android:viewportWidth="108" android:viewportHeight="108">
-    <!-- crescent -->
-    <path android:fillColor="#D9B45B"
-        android:pathData="M62,30 A22,22 0 1,0 62,78 A17,17 0 1,1 62,30 Z" />
-    <!-- star -->
-    <path android:fillColor="#D9B45B"
-        android:pathData="M74,46 L77,53 L84,54 L79,59 L80,66 L74,63 L68,66 L69,59 L64,54 L71,53 Z" />
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFD9B45B"
+        android:pathData="M30.5,54 h5 v23 h-5 Z" />
+    <path
+        android:fillColor="#FFD9B45B"
+        android:pathData="M72.5,54 h5 v23 h-5 Z" />
+    <path
+        android:fillColor="#FFD9B45B"
+        android:fillType="evenOdd"
+        android:pathData="M39,66 h30 v11 h-30 Z M49,77 v-4.5 a5,5 0 0,1 10,0 v4.5 Z" />
+    <path
+        android:fillColor="#FFF2DA96"
+        android:pathData="M36.5,62 h35 v4 h-35 Z" />
+    <path
+        android:fillColor="#FFF2DA96"
+        android:pathData="M29.0,51.5 h8 v2.9 h-8 Z" />
+    <path
+        android:fillColor="#FFF2DA96"
+        android:pathData="M71.0,51.5 h8 v2.9 h-8 Z" />
+    <path
+        android:fillColor="#FFF2DA96"
+        android:pathData="M29.8,51.5 C29.8,47 31.2,45 33.0,43.2 C34.8,45 36.2,47 36.2,51.5 Z" />
+    <path
+        android:fillColor="#FFF2DA96"
+        android:pathData="M71.8,51.5 C71.8,47 73.2,45 75.0,43.2 C76.8,45 78.2,47 78.2,51.5 Z" />
+    <path
+        android:fillColor="#FFF2DA96"
+        android:pathData="M32.3,40 h1.4 v4 h-1.4 Z" />
+    <path
+        android:fillColor="#FFF2DA96"
+        android:pathData="M74.3,40 h1.4 v4 h-1.4 Z" />
+    <path
+        android:fillColor="#FFF2DA96"
+        android:pathData="M41,62 C40,52 44,44 54,36.5 C64,44 68,52 67,62 Z" />
+    <path
+        android:fillColor="#FFF2DA96"
+        android:pathData="M53.1,32 h1.8 v6 h-1.8 Z" />
+    <path
+        android:fillColor="#FFF2DA96"
+        android:fillType="evenOdd"
+        android:pathData="M54,21.6 a6.4,6.4 0 1,0 0,12.8 a6.4,6.4 0 1,0 0,-12.8 Z M57.4,20.5 a6.1,6.1 0 1,0 0,12.2 a6.1,6.1 0 1,0 0,-12.2 Z" />
 </vector>

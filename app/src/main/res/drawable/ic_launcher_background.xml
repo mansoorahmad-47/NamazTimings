@@ -1,4 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#14251C" />
-</shape>
+<!--
+    Launcher icon, background layer.
+
+    Deep emerald into near-black, with a warm glow behind where the dome sits.
+    Emerald and gold is the old pairing and it gives the icon something to be
+    on a home screen full of flat brand colours; the glow stops the lower half
+    reading as a dead rectangle.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="14" android:startY="0"
+                android:endX="94" android:endY="108">
+                <item android:offset="0" android:color="#FF15564A" />
+                <item android:offset="0.55" android:color="#FF0D3733" />
+                <item android:offset="1" android:color="#FF06201F" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54" android:centerY="46"
+                android:gradientRadius="46">
+                <item android:offset="0" android:color="#3DF2DA96" />
+                <item android:offset="1" android:color="#00F2DA96" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

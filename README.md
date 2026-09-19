@@ -45,6 +45,16 @@ a live countdown to that moment — turning red in the last half hour. The next
 prayer sits below it. Between sunrise and Zuhr, when no fard prayer is due, it
 says so instead of inventing one.
 
+**The day turns at Fajr, not at midnight.** Isha runs until Subh Sadiq, so at
+one in the morning the prayer being offered is still the previous day's — and
+so are the four already prayed. Rolling the screen over at 00:00 would wipe
+that progress from view and put a finished day on record as unfinished. Until
+Fajr the app stays on the previous day and says so in a line at the top.
+
+**A prayer can only be marked once its time has come.** Prayers whose azan has
+not been called are dimmed and not tappable, on the front page and in the
+calendar alike — there is no marking tomorrow's Asr this morning.
+
 **Tracking and streaks.** Tap a prayer to mark it prayed; tap again to undo.
 Unmarked prayers turn red and are labelled qaza once their window closes. Your
 streak counts consecutive days on which all five were prayed — an unfinished
@@ -121,7 +131,7 @@ Pakistan is UTC+5 year round with no daylight saving, which is built in.
 
 ## Accuracy, honestly
 
-The astronomy is verified against objective checks, not eyeballed. 204 tests
+The astronomy is verified against objective checks, not eyeballed. 220 tests
 cover it, including the ones that actually catch errors:
 
 - Solar declination hits ±23.44° at the solstices and 0° at the equinoxes.
@@ -169,11 +179,18 @@ kotlinc app/src/main/java/io/frontierlabs/namaz/core/*.kt tests/Test.kt \
 
 Two kinds, both switchable in Settings, both on by default.
 
+
 **Prayer time.** A notification the moment each prayer's window opens.
 
 **Qaza warning.** Fifteen minutes before a window closes — but only if you
 have not marked that prayer yet. Mark Asr at four o'clock and the 5:55 warning
 never arrives. This is the one the whole feature is for.
+
+Neither is optional in the sense that matters: both are on out of the box, and
+**update alerts have no switch at all**. That one channel is the only way a
+phone can learn a new build exists, and a switch there would only ever get
+turned off by accident, leaving someone stranded on an old version with no way
+to find out. Android's own per-channel controls still work if anyone objects.
 
 The awkward parts are handled rather than hoped for:
 
@@ -184,7 +201,10 @@ The awkward parts are handled rather than hoped for:
 - **Midnight.** Isha's window ends at the next day's Subh Sadiq, so its qaza
   warning rings around four in the morning — the following day, about the
   previous day's prayer. Getting that distinction wrong makes the app check
-  the wrong day's marked prayers; there are tests for it specifically.
+  the wrong day's marked prayers; there are tests for it specifically. The
+  alarms are also built from a three-day window rather than two, because at
+  three in the morning the Isha still running belongs to *yesterday* and its
+  warning is the very next alert due.
 - **Reboots and reinstalls.** Android drops every alarm on reboot, on a clock
   or time-zone change, and when you install the next APK over the top. All
   four re-arm. So does opening the app, and so does each alarm as it fires.
@@ -278,6 +298,6 @@ app/src/main/java/io/frontierlabs/namaz/
   AlertReceiver.kt      an alarm fired: show it if it still matters, re-arm
   BootReceiver.kt       re-arm after reboot, clock change or reinstall
   UpdateReceiver.kt     the daily new-version check
-tests/Test.kt           204 tests, runnable on a plain JVM
+tests/Test.kt           220 tests, runnable on a plain JVM
 .github/workflows/      CI that builds the APK
 ```

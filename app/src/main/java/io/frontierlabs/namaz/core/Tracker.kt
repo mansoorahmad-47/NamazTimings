@@ -19,63 +19,105 @@ enum class PrayerStatus {
     MISSED,
 }
 
+/**
+ * Where "now" sits inside the prayer day.
+ *
+ * @param dayOffset 0 when the prayer day is today's date, -1 when it is
+ *   yesterday's — which is the case after midnight but before Fajr.
+ * @param dayMinutes minutes since the prayer day began. Runs past 1440 rather
+ *   than resetting at midnight, so 00:30 on a prayer day that started
+ *   yesterday reads as 1470.
+ */
+data class PrayerDay(val dayOffset: Int, val dayMinutes: Int)
+
 object Tracker {
 
     /** The five fard prayers, in order. */
     val FARD = listOf("Fajr", "Zuhr", "Asr", "Maghrib", "Isha")
 
     /**
-     * Is [now] inside the window [start]..[end]?
+     * Which day's prayers "now" belongs to, and how far into that day it is.
      *
-     * Isha's window runs past midnight into the next day's Subh Sadiq, so when
-     * `end` is earlier on the clock than `start` the window wraps. Treating it
-     * as a simple `start <= now < end` marks Isha missed the moment midnight
-     * passes, which is wrong and would ruin a streak every single night.
+     * **The day does not turn over at midnight.** Isha runs until Subh Sadiq,
+     * so at one in the morning the prayer still being offered is the previous
+     * day's, and the five prayers on the screen should still be that day's.
+     * Rolling over at 00:00 makes the app announce a fresh, untouched day
+     * while the user is in the middle of finishing the old one: it wipes the
+     * visible progress, offers tomorrow's Fajr for marking, and records a day
+     * with four prayers offered as incomplete.
+     *
+     * So the boundary is Fajr, not midnight. Before today's Fajr the prayer
+     * day is yesterday and [PrayerDay.dayMinutes] keeps counting past 1440;
+     * from Fajr onward it is today.
+     *
+     * @param nowMinutes wall-clock minutes from midnight
+     * @param todayFajrMinutes today's Fajr, from today's calendar date
      */
-    fun inWindow(now: Clock, start: Clock, end: Clock): Boolean {
-        val s = start.minutes
-        val e = end.minutes
-        val n = now.minutes
-        return if (e > s) n in s until e else n >= s || n < e
-    }
+    fun prayerDay(nowMinutes: Int, todayFajrMinutes: Int): PrayerDay =
+        if (nowMinutes < todayFajrMinutes) PrayerDay(-1, nowMinutes + 1440)
+        else PrayerDay(0, nowMinutes)
 
     /**
-     * The prayer whose window is open right now, with its start and end.
+     * A prayer's end on the same scale as [PrayerDay.dayMinutes].
+     *
+     * Isha's end reads as earlier on the clock than its start because it
+     * belongs to the next morning. Unwrapping it once, here, is what lets
+     * every comparison below be a plain `<` instead of a special case.
+     */
+    fun endInDay(start: Clock, end: Clock): Int =
+        if (end.minutes <= start.minutes) end.minutes + 1440 else end.minutes
+
+    /**
+     * The prayer whose window is open, with its start and end.
      *
      * Null between sunrise and Zuhr, when no fard prayer is due — the front
      * page says so rather than inventing a "current" prayer.
      */
-    fun currentPrayer(now: Clock, times: DayTimes): Triple<String, Clock, Clock>? =
-        times.list().firstOrNull { (_, start, end) -> inWindow(now, start, end) }
+    fun currentPrayer(dayMinutes: Int, times: DayTimes): Triple<String, Clock, Clock>? =
+        times.list().firstOrNull { (_, start, end) ->
+            dayMinutes >= start.minutes && dayMinutes < endInDay(start, end)
+        }
 
-    /** Minutes from [now] until [end], counting across midnight. */
+    /** Minutes from [now] until [end] on the wall clock, counting across midnight. */
     fun minutesUntil(now: Clock, end: Clock): Int =
         ((end.minutes - now.minutes) + 1440) % 1440
+
+    /** Minutes left before the window closes, measured inside the prayer day. */
+    fun minutesLeft(dayMinutes: Int, start: Clock, end: Clock): Int =
+        (endInDay(start, end) - dayMinutes).coerceAtLeast(0)
+
+    /**
+     * Has this prayer's time arrived?
+     *
+     * Nobody can offer a prayer before its azan, so the app should not offer
+     * to mark one. On any earlier day every prayer has started, and callers
+     * say so by passing the day's full length.
+     */
+    fun hasStarted(dayMinutes: Int, start: Clock): Boolean = dayMinutes >= start.minutes
 
     /**
      * Status of one prayer.
      *
+     * @param dayMinutes minutes since the prayer day began (see [prayerDay])
      * @param done whether the user has marked it prayed
      */
-    fun statusOf(now: Clock, start: Clock, end: Clock, done: Boolean): PrayerStatus = when {
+    fun statusOf(dayMinutes: Int, start: Clock, end: Clock, done: Boolean): PrayerStatus = when {
         done -> PrayerStatus.DONE
-        inWindow(now, start, end) -> PrayerStatus.DUE
-        // A wrapping window (Isha) is never "missed" during the same day: it
-        // only lapses once the next Fajr arrives, which is the next day's row.
-        end.minutes <= start.minutes -> PrayerStatus.UPCOMING
-        now.minutes >= end.minutes -> PrayerStatus.MISSED
-        else -> PrayerStatus.UPCOMING
+        dayMinutes < start.minutes -> PrayerStatus.UPCOMING
+        dayMinutes < endInDay(start, end) -> PrayerStatus.DUE
+        else -> PrayerStatus.MISSED
     }
 
     /** All five statuses for a day, in order. */
     fun dayStatuses(
-        now: Clock,
+        dayMinutes: Int,
         times: DayTimes,
         done: Set<String>,
     ): List<Pair<String, PrayerStatus>> =
         times.list().map { (name, start, end) ->
-            name to statusOf(now, start, end, done.contains(name))
+            name to statusOf(dayMinutes, start, end, done.contains(name))
         }
+
 
     /** How many of the five are marked prayed. */
     fun completedCount(done: Set<String>): Int = FARD.count { done.contains(it) }

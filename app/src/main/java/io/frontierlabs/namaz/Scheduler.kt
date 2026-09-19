@@ -52,17 +52,21 @@ object Scheduler {
         val settings = Prefs.settings(prefs)
 
         val today = LocalDate.now(PK)
+        val yesterday = today.minusDays(1)
         val tomorrow = today.plusDays(1)
-        val t = PrayerTimes.forDate(
-            today.year, today.monthValue, today.dayOfMonth, city, settings)
-        val tm = PrayerTimes.forDate(
-            tomorrow.year, tomorrow.monthValue, tomorrow.dayOfMonth, city, settings)
+        fun timesFor(d: LocalDate) =
+            PrayerTimes.forDate(d.year, d.monthValue, d.dayOfMonth, city, settings)
 
         val now = LocalTime.now(PK)
         val nowMinutes = now.hour * 60 + now.minute
 
+        // Yesterday matters between midnight and Fajr: the Isha running then
+        // is yesterday's, and its qaza warning is the next alert due.
         val wanted = Alerts
-            .toArm(t, tm, nowMinutes, Prefs.warnMinutes(prefs))
+            .toArm(
+                timesFor(yesterday), timesFor(today), timesFor(tomorrow),
+                nowMinutes, Prefs.warnMinutes(prefs),
+            )
             .filter {
                 when (it.kind) {
                     AlertKind.PRAYER_START -> prayerOn
@@ -159,10 +163,6 @@ object Scheduler {
             Intent(context, UpdateReceiver::class.java).setAction(ACTION_UPDATE),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        if (!Prefs.updateAlerts(Prefs.get(context))) {
-            runCatching { am.cancel(pi) }
-            return
-        }
         runCatching {
             am.setInexactRepeating(
                 AlarmManager.RTC,

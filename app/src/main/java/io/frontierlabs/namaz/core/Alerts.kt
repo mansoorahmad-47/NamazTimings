@@ -41,7 +41,7 @@ data class Alert(
 
     /**
      * Which day's timetable this prayer belongs to, counted from the base
-     * day. 0 for today, 1 for tomorrow.
+     * day: -1 yesterday, 0 today, 1 tomorrow.
      *
      * This is **not** the same as [dayOffset], and conflating the two is a
      * real bug rather than a nicety. Isha's qaza warning rings tomorrow
@@ -101,29 +101,39 @@ object Alerts {
     }
 
     /**
-     * The alerts to actually arm right now: everything still ahead today, plus
-     * tomorrow's, keeping only the first occurrence of each prayer-and-kind.
+     * The alerts to actually arm right now: everything still ahead, taking the
+     * first occurrence of each prayer-and-kind.
      *
-     * Keeping one per [Alert.requestCode] is deliberate. Ten alarms cover a
-     * full day and a bit, each with its own slot, so nothing overwrites
-     * anything else. The app re-arms on launch, on boot and every time an
-     * alarm fires, so the chain refills long before it runs out.
+     * **Yesterday is in the list for a reason.** Arm the alarms at half past
+     * midnight and the Isha still running belongs to *yesterday* — its qaza
+     * warning is three hours away and is the most useful alert on the list.
+     * Looking only at today and tomorrow puts that warning twenty-four hours
+     * late, so the one alert the user actually needed never arrives.
+     * Yesterday's other alerts are all in the past and drop out on their own.
+     *
+     * Keeping one alert per [Alert.requestCode] is deliberate. Ten alarms
+     * cover a full day and a bit, each with its own slot, so nothing
+     * overwrites anything else. The app re-arms on launch, on boot and every
+     * time an alarm fires, so the chain refills long before it runs out.
      *
      * @param nowMinutes minutes from midnight right now
-     * @param tomorrow tomorrow's times, offset by a day internally
      */
     fun toArm(
+        yesterday: DayTimes,
         today: DayTimes,
         tomorrow: DayTimes,
         nowMinutes: Int,
         warnMinutes: Int = DEFAULT_WARN_MINUTES,
     ): List<Alert> {
-        val todays = forDay(today, warnMinutes).filter { it.at > nowMinutes }
+        val yesterdays = forDay(yesterday, warnMinutes)
+            .map { it.copy(at = it.at - 1440, fromDayOffset = -1) }
+        val todays = forDay(today, warnMinutes)
         val tomorrows = forDay(tomorrow, warnMinutes)
             .map { it.copy(at = it.at + 1440, fromDayOffset = 1) }
 
         val seen = mutableSetOf<Int>()
-        return (todays + tomorrows)
+        return (yesterdays + todays + tomorrows)
+            .filter { it.at > nowMinutes }
             .sortedBy { it.at }
             .filter { seen.add(it.requestCode) }
     }

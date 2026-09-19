@@ -53,7 +53,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import io.frontierlabs.namaz.core.*
 import java.time.LocalDate
-import java.time.LocalTime
+import java.time.LocalDateTime
 
 /** Current language's strings, available to every composable. */
 val LocalStr = staticCompositionLocalOf { Strings.EN }
@@ -219,12 +219,12 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
         runCatching { Scheduler.armAll(context) }
     }
 
+    // The month chart highlights the calendar day, which is the right unit
+    // for a printed-style timetable. The Today tab works on the prayer day
+    // instead and derives its own dates -- see TodayScreen.
     val today = remember { LocalDate.now(PK) }
     var shownMonth by remember { mutableIntStateOf(today.monthValue) }
     var shownYear by remember { mutableIntStateOf(today.year) }
-    val times = remember(city, settings) {
-        PrayerTimes.forDate(today.year, today.monthValue, today.dayOfMonth, city, settings)
-    }
 
     CompositionLocalProvider(
         LocalStr provides Strings.of(lang),
@@ -274,7 +274,7 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
             )
 
             when (tab) {
-                0 -> TodayScreen(city, times, settings, prefs, today, lang)
+                0 -> TodayScreen(city, settings, prefs, lang)
                 2 -> QiblaScreen(city, lang)
                 else -> MonthScreen(
                     city, settings, shownYear, shownMonth, lang,
@@ -346,47 +346,73 @@ private fun PillTabs(selected: Int, labels: List<String>, onSelect: (Int) -> Uni
 @Composable
 fun TodayScreen(
     city: City,
-    t: DayTimes,
     settings: Settings,
     prefs: android.content.SharedPreferences,
-    today: LocalDate,
     lang: Lang,
 ) {
     val S = LocalStr.current
-    // Ticks so the countdown stays live without a service.
-    var nowClock by remember {
-        mutableStateOf(LocalTime.now(PK).let { Clock(it.hour * 60 + it.minute) })
-    }
+
+    // Ticks so the countdown stays live without a service. The date is part
+    // of the tick, not remembered once: leave the app open overnight and it
+    // has to move on by itself.
+    var now by remember { mutableStateOf(LocalDateTime.now(PK)) }
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(20_000)
-            val n = LocalTime.now(PK)
-            nowClock = Clock(n.hour * 60 + n.minute)
+            now = LocalDateTime.now(PK)
         }
     }
 
-    var done by remember {
-        mutableStateOf(Prefs.readDone(prefs, today.year, today.monthValue, today.dayOfMonth))
+    val calendarDate = now.toLocalDate()
+    val nowMinutes = now.hour * 60 + now.minute
+    val nowClock = Clock(nowMinutes)
+
+    // The screen follows the PRAYER day, which runs Fajr to Fajr. Between
+    // midnight and Fajr that is still yesterday: the Isha being offered is
+    // yesterday's, the four already prayed are yesterday's, and showing a
+    // fresh empty day at 00:00 would wipe all of that from view and put a
+    // completed day on record as incomplete.
+    val todayFajr = remember(city, settings, calendarDate) {
+        PrayerTimes.forDate(
+            calendarDate.year, calendarDate.monthValue, calendarDate.dayOfMonth,
+            city, settings,
+        ).fajr
+    }
+    val pd = Tracker.prayerDay(nowMinutes, todayFajr.minutes)
+    val day = calendarDate.plusDays(pd.dayOffset.toLong())
+    val t = remember(city, settings, day) {
+        PrayerTimes.forDate(day.year, day.monthValue, day.dayOfMonth, city, settings)
+    }
+
+    var done by remember(day) {
+        mutableStateOf(Prefs.readDone(prefs, day.year, day.monthValue, day.dayOfMonth))
     }
     fun toggle(name: String) {
         done = if (done.contains(name)) done - name else done + name
-        Prefs.writeDone(prefs, today.year, today.monthValue, today.dayOfMonth, done)
+        Prefs.writeDone(prefs, day.year, day.monthValue, day.dayOfMonth, done)
     }
 
     var showHistory by remember { mutableStateOf(false) }
     var historyVersion by remember { mutableIntStateOf(0) }
 
-    val streak = remember(done, historyVersion) {
-        streakSummary(today.year, today.monthValue, today.dayOfMonth) { y, m, d ->
-            val set = if (y == today.year && m == today.monthValue && d == today.dayOfMonth)
+    val streak = remember(done, historyVersion, day) {
+        streakSummary(day.year, day.monthValue, day.dayOfMonth) { y, m, d ->
+            val set = if (y == day.year && m == day.monthValue && d == day.dayOfMonth)
                 done else Prefs.readDone(prefs, y, m, d)
             Tracker.isDayComplete(set)
         }
     }
 
-    val current = Tracker.currentPrayer(nowClock, t)
-    val (_, next, minsToNext) = PrayerTimes.nextPrayer(nowClock, t)
-    val statuses = Tracker.dayStatuses(nowClock, t, done)
+    val current = Tracker.currentPrayer(pd.dayMinutes, t)
+    val (_, next, _) = PrayerTimes.nextPrayer(nowClock, t)
+    val statuses = Tracker.dayStatuses(pd.dayMinutes, t, done)
+
+    // Once Isha has begun, the next Fajr is tomorrow morning's, which is the
+    // one DayTimes already carries -- not the Fajr at the top of this card.
+    val nextStart =
+        if (next == "Fajr" && pd.dayMinutes >= t.isha.minutes) t.nextFajr
+        else t.list().firstOrNull { it.first == next }?.second
+    val minsToNext = nextStart?.let { Tracker.minutesUntil(nowClock, it) } ?: 0
 
     Column(
         Modifier
@@ -395,11 +421,21 @@ fun TodayScreen(
             .padding(top = 12.dp),
     ) {
 
+        // Without this, someone opening the app at one in the morning sees
+        // four prayers already ticked and no obvious reason why.
+        if (pd.dayOffset != 0) {
+            Text(
+                S.stillPreviousDay,
+                Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                fontSize = 11.sp, color = AMBER,
+            )
+        }
+
         // --- current prayer, its qaza time, and the countdown --------------
         if (current != null) {
             val (name, startAt, qazaAt) = current
-            val left = Tracker.minutesUntil(nowClock, qazaAt)
-            val total = ((qazaAt.minutes - startAt.minutes) + 1440) % 1440
+            val left = Tracker.minutesLeft(pd.dayMinutes, startAt, qazaAt)
+            val total = Tracker.endInDay(startAt, qazaAt) - startAt.minutes
             val fraction = if (total <= 0) 0f else left.toFloat() / total.toFloat()
             val urgent = left <= 30
 
@@ -515,9 +551,10 @@ fun TodayScreen(
                             fontWeight = FontWeight.SemiBold)
                     }
                     Column(horizontalAlignment = Alignment.End) {
+                        // nextStart, not a lookup in this day's list: during
+                        // Isha the next Fajr is tomorrow morning's.
                         Text(
-                            t.list().firstOrNull { it.first == next }?.second?.format12()
-                                ?: "—",
+                            nextStart?.format12() ?: "—",
                             fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = GOLD,
                         )
                         Text("${minsToNext / 60}h ${minsToNext % 60}m",
@@ -569,10 +606,14 @@ fun TodayScreen(
                         PrayerStatus.DUE -> GOLD
                         PrayerStatus.UPCOMING -> Color.Unspecified
                     }
+                    // A prayer whose azan has not been called cannot have
+                    // been offered, so it is not offered for marking either.
+                    val markable = status != PrayerStatus.UPCOMING
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable { toggle(name) }
+                            .clickable(enabled = markable) { toggle(name) }
+                            .alpha(if (markable) 1f else 0.5f)
                             .padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -668,12 +709,15 @@ fun TodayScreen(
     if (showHistory) {
         CalendarDialog(
             prefs = prefs,
-            today = today,
+            prayerDay = day,
+            dayMinutes = pd.dayMinutes,
+            city = city,
+            settings = settings,
             lang = lang,
             onDismiss = { showHistory = false },
             onChanged = {
                 historyVersion++
-                done = Prefs.readDone(prefs, today.year, today.monthValue, today.dayOfMonth)
+                done = Prefs.readDone(prefs, day.year, day.monthValue, day.dayOfMonth)
             },
         )
     }
@@ -1222,15 +1266,20 @@ fun CompassDial(headingTrue: Float, qiblaBearing: Float, live: Boolean, aligned:
 @Composable
 fun CalendarDialog(
     prefs: android.content.SharedPreferences,
-    today: LocalDate,
+    /** The day the app currently considers "today" — Fajr to Fajr. */
+    prayerDay: LocalDate,
+    /** Minutes into [prayerDay], used to tell which prayers have started. */
+    dayMinutes: Int,
+    city: City,
+    settings: Settings,
     lang: Lang,
     onDismiss: () -> Unit,
     onChanged: () -> Unit,
 ) {
     val S = LocalStr.current
     var version by remember { mutableIntStateOf(0) }
-    var shown by remember { mutableStateOf(today.withDayOfMonth(1)) }
-    var selected by remember { mutableStateOf<LocalDate?>(today) }
+    var shown by remember { mutableStateOf(prayerDay.withDayOfMonth(1)) }
+    var selected by remember { mutableStateOf<LocalDate?>(prayerDay) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1255,7 +1304,7 @@ fun CalendarDialog(
                     )
                     // Never page past the current month: there is nothing
                     // there to mark.
-                    val canGoForward = shown.isBefore(today.withDayOfMonth(1))
+                    val canGoForward = shown.isBefore(prayerDay.withDayOfMonth(1))
                     TextButton(
                         onClick = { if (canGoForward) shown = shown.plusMonths(1) },
                         enabled = canGoForward,
@@ -1300,7 +1349,7 @@ fun CalendarDialog(
                                 Spacer(Modifier.weight(1f).height(44.dp))
                             } else {
                                 val date = shown.withDayOfMonth(dayNumber)
-                                val future = date.isAfter(today)
+                                val future = date.isAfter(prayerDay)
                                 val count = run {
                                     version   // read so a write recomposes the grid
                                     Tracker.completedCount(
@@ -1312,7 +1361,7 @@ fun CalendarDialog(
                                     modifier = Modifier.weight(1f),
                                     day = dayNumber,
                                     count = count,
-                                    isToday = date == today,
+                                    isToday = date == prayerDay,
                                     isSelected = date == selected,
                                     future = future,
                                     onClick = { if (!future) selected = date },
@@ -1340,23 +1389,36 @@ fun CalendarDialog(
                     Text(
                         "${Strings.weekdayShort(lang, d.dayOfWeek.value % 7)} " +
                             "${d.dayOfMonth} ${Strings.monthName(lang, d.monthValue)} " +
-                            (if (d == today) "· ${S.today}" else ""),
+                            (if (d == prayerDay) "· ${S.today}" else ""),
                         fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = GOLD,
                     )
                     Spacer(Modifier.height(4.dp))
+
+                    // On any earlier day every prayer has been and gone, so
+                    // all five can be marked. On the day still in progress,
+                    // only the ones whose azan has been called can.
+                    val liveTimes =
+                        if (d == prayerDay) remember(city, settings, d) {
+                            PrayerTimes.forDate(
+                                d.year, d.monthValue, d.dayOfMonth, city, settings)
+                        } else null
+
                     Tracker.FARD.forEach { name ->
                         val on = doneSet.contains(name)
+                        val start = liveTimes?.list()?.firstOrNull { it.first == name }?.second
+                        val markable = start == null || Tracker.hasStarted(dayMinutes, start)
                         Row(
                             Modifier
                                 .fillMaxWidth()
                                 .clip(R12)
-                                .clickable {
+                                .clickable(enabled = markable) {
                                     val next = if (on) doneSet - name else doneSet + name
                                     Prefs.writeDone(prefs, d.year, d.monthValue,
                                         d.dayOfMonth, next)
                                     version++
                                     onChanged()
                                 }
+                                .alpha(if (markable) 1f else 0.45f)
                                 .padding(vertical = 9.dp, horizontal = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -1532,7 +1594,6 @@ fun SettingsDialog(
     var lang by remember { mutableStateOf(currentLang) }
     var notifyPrayer by remember { mutableStateOf(Prefs.prayerAlerts(prefs)) }
     var notifyQaza by remember { mutableStateOf(Prefs.qazaAlerts(prefs)) }
-    var notifyUpdate by remember { mutableStateOf(Prefs.updateAlerts(prefs)) }
 
     val blocked = !Notifications.allowed(context)
 
@@ -1542,7 +1603,6 @@ fun SettingsDialog(
             TextButton(onClick = {
                 Prefs.setPrayerAlerts(prefs, notifyPrayer)
                 Prefs.setQazaAlerts(prefs, notifyQaza)
-                Prefs.setUpdateAlerts(prefs, notifyUpdate)
                 onSave(current.copy(method = method, asr = asr), lang)
                 // The switches only take effect once the alarms are redrawn.
                 runCatching { Scheduler.armAll(context) }
@@ -1581,9 +1641,6 @@ fun SettingsDialog(
                     notifyPrayer = it
                 }
                 SwitchRow(S.notifyQaza, S.notifyQazaHelp, notifyQaza) { notifyQaza = it }
-                SwitchRow(S.notifyUpdate, S.notifyUpdateHelp, notifyUpdate) {
-                    notifyUpdate = it
-                }
                 Spacer(Modifier.height(4.dp))
                 Text(S.exactAlarmsNote, fontSize = 10.5.sp, color = MUTED)
 

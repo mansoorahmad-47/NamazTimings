@@ -68,6 +68,7 @@ data class Str(
     val pastDays: String,
     val pastDaysHelp: String,
     val today: String,
+    val stillPreviousDay: String,
     val longest: String,
     val thisIsYourBest: String,
     val toBeatYourBest: String,
@@ -84,8 +85,6 @@ data class Str(
     val notifyPrayerHelp: String,
     val notifyQaza: String,
     val notifyQazaHelp: String,
-    val notifyUpdate: String,
-    val notifyUpdateHelp: String,
     val allowNotifications: String,
     val allowNotificationsHelp: String,
     val exactAlarmsNote: String,
@@ -203,6 +202,8 @@ object Strings {
             "including qaza you have since made up. A day with all five counts " +
             "towards your streak.",
         today = "today",
+        stillPreviousDay = "Still yesterday's prayers — the day turns at Fajr, "
+            + "not at midnight.",
         longest = "LONGEST",
         thisIsYourBest = "This is your longest run yet.",
         toBeatYourBest = "to go to beat your record.",
@@ -218,9 +219,6 @@ object Strings {
         notifyQaza = "Qaza warnings",
         notifyQazaHelp = "A reminder 15 minutes before a prayer's window closes, " +
             "but only if you have not marked it yet.",
-        notifyUpdate = "New version alerts",
-        notifyUpdateHelp = "Tells you when a newer build is available, with a " +
-            "download link.",
         allowNotifications = "Allow notifications",
         allowNotificationsHelp = "Android needs your permission before the app " +
             "can show anything.",
@@ -338,6 +336,8 @@ object Strings {
         pastDaysHelp = "دن پر دبائیں، پھر ہر وہ نماز منتخب کریں جو آپ نے ادا کی — " +
             "بشمول وہ قضا نمازیں جو بعد میں ادا کیں۔ پانچوں نمازوں والا دن تسلسل میں شمار ہوتا ہے۔",
         today = "آج",
+        stillPreviousDay = "یہ اب بھی گزشتہ دن کی نمازیں ہیں — دن رات بارہ بجے نہیں، "
+            + "فجر سے بدلتا ہے۔",
         longest = "سب سے طویل",
         thisIsYourBest = "یہ اب تک کا آپ کا سب سے طویل سلسلہ ہے۔",
         toBeatYourBest = "اپنا ریکارڈ توڑنے کے لیے باقی",
@@ -353,8 +353,6 @@ object Strings {
         notifyQaza = "قضا ہونے کی وارننگ",
         notifyQazaHelp = "نماز کا وقت ختم ہونے سے ۱۵ منٹ پہلے یاد دہانی، " +
             "لیکن صرف اُس صورت میں جب آپ نے اسے ادا شدہ نشان زد نہ کیا ہو۔",
-        notifyUpdate = "نئے ورژن کی اطلاع",
-        notifyUpdateHelp = "نیا ورژن دستیاب ہونے پر ڈاؤن لوڈ لنک کے ساتھ اطلاع دے گا۔",
         allowNotifications = "اطلاعات کی اجازت دیں",
         allowNotificationsHelp = "اطلاعات دکھانے سے پہلے اینڈرائیڈ کو آپ کی اجازت درکار ہے۔",
         exactAlarmsNote = "اگر اطلاعات دیر سے آئیں تو اینڈرائیڈ کی ترتیبات میں " +
@@ -432,10 +430,11 @@ object Strings {
         s.qazaOwed, s.tapToMark, s.alsoToday,
         s.streak, s.day, s.days, s.ofFiveToday, s.allFivePrayed,
         s.completeAllFive, s.pastDays, s.pastDaysHelp, s.today,
+        s.stillPreviousDay,
         s.longest, s.thisIsYourBest, s.toBeatYourBest, s.noStreakYet,
         s.pickADate, s.futureDay, s.markedPrayers,
         s.notifications, s.notifyPrayer, s.notifyPrayerHelp, s.notifyQaza,
-        s.notifyQazaHelp, s.notifyUpdate, s.notifyUpdateHelp,
+        s.notifyQazaHelp,
         s.allowNotifications, s.allowNotificationsHelp, s.exactAlarmsNote,
         s.hasBegun, s.timeToPray, s.aboutToBecomeQaza, s.minutesLeft,
         s.prayItNow, s.channelPrayerName, s.channelPrayerDesc,

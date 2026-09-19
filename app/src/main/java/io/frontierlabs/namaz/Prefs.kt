@@ -64,7 +64,17 @@ object Prefs {
 
     fun qazaAlerts(prefs: SharedPreferences) = prefs.getBoolean("notifyQaza", true)
 
-    fun updateAlerts(prefs: SharedPreferences) = prefs.getBoolean("notifyUpdate", true)
+    /**
+     * Always on, and deliberately not a setting.
+     *
+     * This is the only channel that can tell the family a new build exists —
+     * the app is not on the Play Store, so nothing else will. A switch here
+     * would only ever be turned off by accident, and the phone would then sit
+     * on an old version indefinitely with no way for anyone to find out. If
+     * someone really does not want them, Android's own per-channel controls
+     * still work.
+     */
+    fun updateAlerts(@Suppress("UNUSED_PARAMETER") prefs: SharedPreferences) = true
 
     /** How many minutes before the window closes the qaza warning fires. */
     fun warnMinutes(prefs: SharedPreferences) = prefs.getInt("warnMinutes", 15)
@@ -74,9 +84,6 @@ object Prefs {
 
     fun setQazaAlerts(prefs: SharedPreferences, on: Boolean) =
         prefs.edit().putBoolean("notifyQaza", on).apply()
-
-    fun setUpdateAlerts(prefs: SharedPreferences, on: Boolean) =
-        prefs.edit().putBoolean("notifyUpdate", on).apply()
 
     fun setWarnMinutes(prefs: SharedPreferences, minutes: Int) =
         prefs.edit().putInt("warnMinutes", minutes).apply()
