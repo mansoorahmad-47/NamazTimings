@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Widget background: the same deep gradient the app uses, with a hairline
+    edge so the widget reads as a card rather than a hole in the wallpaper.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="24dp" />
+    <gradient
+        android:angle="290"
+        android:startColor="#FF141A24"
+        android:endColor="#FF0B0F16"
+        android:type="linear" />
+    <stroke android:width="1dp" android:color="#22FFFFFF" />
+</shape>

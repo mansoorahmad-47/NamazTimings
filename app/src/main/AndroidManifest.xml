@@ -69,6 +69,20 @@
             android:name=".UpdateReceiver"
             android:exported="false" />
 
+        <!-- The home-screen widget. Exported because the launcher, not this
+             app, is what sends APPWIDGET_UPDATE and the resize callbacks. -->
+        <receiver
+            android:name=".NamazWidget"
+            android:exported="true"
+            android:label="@string/widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/namaz_widget_info" />
+        </receiver>
+
         <!-- Exported, because the events it listens for come from the
              system rather than from this app. -->
         <receiver

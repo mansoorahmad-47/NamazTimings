@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A prayer whose window closed unmarked. Red rather than simply empty, so a
+     missed prayer is distinguishable from one that has not come round yet. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/w_red" />
+    <size android:width="9dp" android:height="9dp" />
+</shape>

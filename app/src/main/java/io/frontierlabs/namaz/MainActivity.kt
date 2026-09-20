@@ -405,9 +405,12 @@ fun TodayScreen(
     var done by remember(day) {
         mutableStateOf(Prefs.readDone(prefs, day.year, day.monthValue, day.dayOfMonth))
     }
+    val context = LocalContext.current
     fun toggle(name: String) {
         done = if (done.contains(name)) done - name else done + name
         Prefs.writeDone(prefs, day.year, day.monthValue, day.dayOfMonth, done)
+        // The widget shows the same tick and the same count.
+        runCatching { NamazWidget.refresh(context) }
     }
 
     var showHistory by remember { mutableStateOf(false) }
@@ -1295,6 +1298,7 @@ fun CalendarDialog(
     onChanged: () -> Unit,
 ) {
     val S = LocalStr.current
+    val ctx = LocalContext.current
     var version by remember { mutableIntStateOf(0) }
     var shown by remember { mutableStateOf(prayerDay.withDayOfMonth(1)) }
     var selected by remember { mutableStateOf<LocalDate?>(prayerDay) }
@@ -1435,6 +1439,7 @@ fun CalendarDialog(
                                         d.dayOfMonth, next)
                                     version++
                                     onChanged()
+                                    runCatching { NamazWidget.refresh(ctx) }
                                 }
                                 .alpha(if (markable) 1f else 0.45f)
                                 .padding(vertical = 9.dp, horizontal = 4.dp),

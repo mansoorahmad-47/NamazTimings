@@ -26,6 +26,8 @@ class AlertReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         runCatching { handle(context, intent) }
+        // A prayer just began or is about to lapse: the widget is now stale.
+        runCatching { NamazWidget.refresh(context) }
         // Re-arm even if handling threw: a broken notification is a nuisance,
         // a dead alarm chain is the whole feature gone.
         runCatching { Scheduler.armAll(context) }

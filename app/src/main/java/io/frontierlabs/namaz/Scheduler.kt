@@ -91,6 +91,13 @@ object Scheduler {
         }
 
         armUpdateCheck(context, am)
+
+        // The widget reads the same city and settings, so anything that
+        // re-arms the alarms has also changed what the widget should say.
+        runCatching {
+            NamazWidget.refresh(context)
+            NamazWidget.scheduleNextRefresh(context)
+        }
     }
 
     private fun set(

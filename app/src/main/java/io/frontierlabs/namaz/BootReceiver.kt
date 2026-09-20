@@ -27,7 +27,10 @@ class BootReceiver : BroadcastReceiver() {
             Intent.ACTION_TIMEZONE_CHANGED,
             Intent.ACTION_MY_PACKAGE_REPLACED,
             "android.intent.action.QUICKBOOT_POWERON" ->
-                runCatching { Scheduler.armAll(context) }
+                runCatching {
+                    Scheduler.armAll(context)
+                    NamazWidget.refresh(context)
+                }
         }
     }
 }

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The palette, duplicated here for the home-screen widget.
+
+    The app's own colours live in MainActivity.kt as Compose Color values,
+    which XML layouts cannot reach. A widget is built from RemoteViews and
+    plain XML, so it needs them as resources. Keep the two in step.
+-->
+<resources>
+    <color name="w_gold">#FFD9B45B</color>
+    <color name="w_gold_dim">#FF8C7433</color>
+    <color name="w_green">#FF4EC27F</color>
+    <color name="w_red">#FFE05555</color>
+    <color name="w_muted">#FF9AA3AF</color>
+    <color name="w_text">#FFECEFF4</color>
+    <color name="w_ink">#FF14161C</color>
+    <color name="w_faint">#33FFFFFF</color>
+</resources>
