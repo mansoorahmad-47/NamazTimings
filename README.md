@@ -228,7 +228,8 @@ you expected and what you saw.
 
 **Developed by Mansoor Ahmad**
 
-Free to use and share. Times are calculated, not fetched.
+Free to use and share, under the [MIT licence](LICENSE).
+Times are calculated, not fetched.
 
 </div>
 

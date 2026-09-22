@@ -3,5 +3,5 @@
   "latestVersionName": "1.3",
   "minSupportedVersionCode": 0,
   "downloadUrl": "https://github.com/mansoorahmad-47/NamazTimings/releases/download/v1.3/NamazTimings.apk",
-  "notes": "Finds your city automatically, the day now turns at Fajr instead of midnight, prayer and qaza notifications, a calendar for past days, longest streak, and a new look."
+  "notes": "A home-screen widget, automatic city detection, a new icon, and the day now turns at Fajr instead of midnight."
 }
