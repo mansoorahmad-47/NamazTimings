@@ -278,6 +278,7 @@ class NamazWidget : AppWidgetProvider() {
 
             val city = Prefs.city(prefs)
             val settings = Prefs.settings(prefs)
+            val lang = Prefs.lang(prefs)
 
             val now = LocalDateTime.now(PK)
             val nowMinutes = now.hour * 60 + now.minute
