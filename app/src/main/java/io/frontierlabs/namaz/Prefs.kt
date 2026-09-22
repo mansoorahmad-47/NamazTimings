@@ -8,6 +8,7 @@ import io.frontierlabs.namaz.core.Cities
 import io.frontierlabs.namaz.core.City
 import io.frontierlabs.namaz.core.Lang
 import io.frontierlabs.namaz.core.Settings
+import java.util.UUID
 
 /**
  * One place that knows the stored keys.
@@ -116,4 +117,23 @@ object Prefs {
 
     fun setLastNotifiedVersion(prefs: SharedPreferences, code: Int) =
         prefs.edit().putInt("updateNotified", code).apply()
+
+    // --- anonymous usage check-in -----------------------------------------
+
+    fun countMe(prefs: SharedPreferences): Boolean = prefs.getBoolean("countMe", true)
+
+    fun installId(prefs: SharedPreferences): String {
+        val existing = prefs.getString("installId", null)
+        if (!existing.isNullOrBlank()) return existing
+
+        val generated = UUID.randomUUID().toString()
+        prefs.edit().putString("installId", generated).apply()
+        return generated
+    }
+
+    fun lastPingDay(prefs: SharedPreferences): Long =
+        prefs.getLong("lastPingDay", Long.MIN_VALUE)
+
+    fun setLastPingDay(prefs: SharedPreferences, day: Long) =
+        prefs.edit().putLong("lastPingDay", day).apply()
 }
