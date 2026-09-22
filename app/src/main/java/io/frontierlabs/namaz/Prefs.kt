@@ -8,7 +8,6 @@ import io.frontierlabs.namaz.core.Cities
 import io.frontierlabs.namaz.core.City
 import io.frontierlabs.namaz.core.Lang
 import io.frontierlabs.namaz.core.Settings
-import java.util.UUID
 
 /**
  * One place that knows the stored keys.
@@ -72,6 +71,25 @@ object Prefs {
     fun lang(prefs: SharedPreferences): Lang =
         runCatching { Lang.valueOf(prefs.getString("lang", "EN")!!) }.getOrDefault(Lang.EN)
 
+    // --- Islamic calendar ---------------------------------------------------
+
+    /**
+     * Days to shift the calculated Islamic date by, to match the local moon
+     * sighting. Clamped, because beyond a couple of days it stops being a
+     * correction and becomes a different calendar.
+     */
+    fun hijriAdjust(prefs: SharedPreferences): Int =
+        prefs.getInt("hijriAdjust", 0)
+            .coerceIn(-io.frontierlabs.namaz.core.Hijri.MAX_ADJUST,
+                      io.frontierlabs.namaz.core.Hijri.MAX_ADJUST)
+
+    fun setHijriAdjust(prefs: SharedPreferences, days: Int) =
+        prefs.edit().putInt(
+            "hijriAdjust",
+            days.coerceIn(-io.frontierlabs.namaz.core.Hijri.MAX_ADJUST,
+                          io.frontierlabs.namaz.core.Hijri.MAX_ADJUST),
+        ).apply()
+
     // --- notification switches ---------------------------------------------
     // All default to on. Someone who installs a prayer app and never opens
     // Settings should still be told when Fajr starts.
@@ -104,6 +122,44 @@ object Prefs {
     fun setWarnMinutes(prefs: SharedPreferences, minutes: Int) =
         prefs.edit().putInt("warnMinutes", minutes).apply()
 
+    // --- the daily check-in -------------------------------------------------
+
+    /**
+     * A random number this install made up for itself, so the developer can
+     * count how many phones are still using the app.
+     *
+     * Generated with [java.util.UUID.randomUUID], which means it is derived
+     * from nothing: not the hardware, not the account, not the phone number.
+     * It identifies this installation and nothing else, and reinstalling
+     * produces a new one. Clearing the app's data does too, which is the
+     * point -- there is deliberately no way to tie it back to a person.
+     */
+    fun installId(prefs: SharedPreferences): String {
+        prefs.getString("installId", null)?.let { if (it.isNotBlank()) return it }
+        val fresh = java.util.UUID.randomUUID().toString()
+        prefs.edit().putString("installId", fresh).apply()
+        return fresh
+    }
+
+    /** Epoch day of the last check-in, or 0 if it has never happened. */
+    fun lastPingDay(prefs: SharedPreferences) = prefs.getLong("lastPingDay", 0L)
+
+    fun setLastPingDay(prefs: SharedPreferences, day: Long) =
+        prefs.edit().putLong("lastPingDay", day).apply()
+
+    /**
+     * Whether to take part in the count. On by default, off in one tap.
+     *
+     * Default-on because a count that most people have opted out of is worse
+     * than no count, and because what travels is a random number and a
+     * version string. It is disclosed on the welcome screen and switchable in
+     * Settings; nothing is hidden.
+     */
+    fun countMe(prefs: SharedPreferences) = prefs.getBoolean("countMe", true)
+
+    fun setCountMe(prefs: SharedPreferences, on: Boolean) =
+        prefs.edit().putBoolean("countMe", on).apply()
+
     // --- update nagging ----------------------------------------------------
 
     /**
@@ -117,23 +173,4 @@ object Prefs {
 
     fun setLastNotifiedVersion(prefs: SharedPreferences, code: Int) =
         prefs.edit().putInt("updateNotified", code).apply()
-
-    // --- anonymous usage check-in -----------------------------------------
-
-    fun countMe(prefs: SharedPreferences): Boolean = prefs.getBoolean("countMe", true)
-
-    fun installId(prefs: SharedPreferences): String {
-        val existing = prefs.getString("installId", null)
-        if (!existing.isNullOrBlank()) return existing
-
-        val generated = UUID.randomUUID().toString()
-        prefs.edit().putString("installId", generated).apply()
-        return generated
-    }
-
-    fun lastPingDay(prefs: SharedPreferences): Long =
-        prefs.getLong("lastPingDay", Long.MIN_VALUE)
-
-    fun setLastPingDay(prefs: SharedPreferences, day: Long) =
-        prefs.edit().putLong("lastPingDay", day).apply()
 }

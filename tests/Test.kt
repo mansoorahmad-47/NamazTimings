@@ -662,6 +662,174 @@ fun main() {
             Cities.all.all { Cities.nearest(it.lat, it.lon).second <= Cities.MAX_TRUSTED_KM })
     }
 
+    println("\n-- the Islamic calendar --")
+    run {
+        // The property that matters is not any single lookup but that the
+        // conversion is exactly reversible. A one-day drift anywhere inside
+        // the 30-year cycle would show up here and nowhere else.
+        var roundTripFails = 0
+        var rangeFails = 0
+        var backwards = 0
+        var previous = -1
+        var jdn = Hijri.gregorianToJdn(1900, 1, 1)
+        val end = Hijri.gregorianToJdn(2100, 1, 1)
+        while (jdn < end) {
+            val h = Hijri.fromJdn(jdn)
+            if (Hijri.toJdn(h.year, h.month, h.day) != jdn) roundTripFails++
+            if (h.month !in 1..12 || h.day !in 1..30) rangeFails++
+            if (h.ordinal <= previous) backwards++
+            previous = h.ordinal
+            jdn++
+        }
+        check("every day from 1900 to 2100 converts back exactly",
+            roundTripFails == 0, "$roundTripFails failures")
+        check("every month is 1-12 and every day 1-30", rangeFails == 0, rangeFails)
+        check("the date never goes backwards", backwards == 0, backwards)
+
+        // The reference everyone checks a Hijri implementation against.
+        val y2k = Hijri.fromGregorian(2000, 1, 1)
+        check("1 January 2000 is 24 Ramadan 1420",
+            y2k == HijriDate(1420, 9, 24), y2k)
+
+        // Gregorian conversion is its own well-known trap: 1900 was not a leap
+        // year and 2000 was, and a formula that gets either wrong is off by a
+        // day for every date after it.
+        check("1 Jan 1970 is JDN 2440588",
+            Hijri.gregorianToJdn(1970, 1, 1) == 2440588L,
+            Hijri.gregorianToJdn(1970, 1, 1))
+        check("1 Jan 1970 was a Thursday",
+            Hijri.weekdayIndex(2440588L) == 4, Hijri.weekdayIndex(2440588L))
+        check("29 Feb 2000 exists and 29 Feb 1900 does not",
+            Hijri.gregorianToJdn(2000, 3, 1) - Hijri.gregorianToJdn(2000, 2, 28) == 2L &&
+            Hijri.gregorianToJdn(1900, 3, 1) - Hijri.gregorianToJdn(1900, 2, 28) == 1L)
+        check("Gregorian conversion round-trips too",
+            (0 until 40000).all {
+                val j = 2400000L + it
+                val (gy, gm, gd) = Hijri.jdnToGregorian(j)
+                Hijri.gregorianToJdn(gy, gm, gd) == j
+            })
+
+        // Month lengths must add up, or a month grid will draw a wrong shape.
+        var lengthFails = 0
+        for (hy in 1440..1480) {
+            val total = (1..12).sumOf { Hijri.monthLength(hy, it) }
+            if (total != Hijri.yearLength(hy)) lengthFails++
+            if (Hijri.toJdn(hy + 1, 1, 1) - Hijri.toJdn(hy, 1, 1) != total.toLong())
+                lengthFails++
+        }
+        check("month lengths sum to the year, 1440-1480", lengthFails == 0, lengthFails)
+        check("a leap year is 355 days and has a 30-day Dhul Hijjah",
+            (1440..1480).filter { Hijri.isLeapYear(it) }.all {
+                Hijri.yearLength(it) == 355 && Hijri.monthLength(it, 12) == 30
+            })
+        check("11 leap years in every 30",
+            (1440 until 1470).count { Hijri.isLeapYear(it) } == 11,
+            (1440 until 1470).count { Hijri.isLeapYear(it) })
+
+        // The adjustment is the whole answer to moon sighting, so it has to
+        // behave exactly: shift the date, and still round-trip.
+        val plain = Hijri.fromGregorian(2026, 9, 22, 0)
+        val plusOne = Hijri.fromGregorian(2026, 9, 22, 1)
+        val minusOne = Hijri.fromGregorian(2026, 9, 22, -1)
+        check("+1 moves the Islamic date one day forward",
+            plusOne.day == plain.day + 1, "$plain vs $plusOne")
+        check("-1 moves it one day back",
+            minusOne.day == plain.day - 1, "$plain vs $minusOne")
+        check("an adjusted date still converts back to the same Gregorian day",
+            (-Hijri.MAX_ADJUST..Hijri.MAX_ADJUST).all { adj ->
+                val h = Hijri.fromGregorian(2026, 9, 22, adj)
+                Hijri.toGregorian(h.year, h.month, h.day, adj) == Triple(2026, 9, 22)
+            })
+
+        // Occasions.
+        val next = Hijri.upcoming(2026, 9, 22, count = 5)
+        check("five occasions come back", next.size == 5, next.size)
+        check("they are in order",
+            next.map { it.daysAway } == next.map { it.daysAway }.sorted(),
+            next.map { it.daysAway })
+        check("none of them is in the past", next.all { it.daysAway >= 0 })
+        check("each one lands on its own Hijri date",
+            next.all { u ->
+                u.hijri.month == u.event.month && u.hijri.day == u.event.day
+            })
+        check("and on the Gregorian day it says",
+            next.all { u ->
+                val (gy, gm, gd) = u.gregorian
+                Hijri.gregorianToJdn(gy, gm, gd) -
+                    Hijri.gregorianToJdn(2026, 9, 22) == u.daysAway.toLong()
+            })
+
+        // The case that would otherwise return an empty list exactly when it
+        // matters: standing inside Dhul Hijjah, everything left is next year.
+        val inDhulHijjah = Hijri.toGregorian(1448, 12, 20)
+        val fromThere = Hijri.upcoming(
+            inDhulHijjah.first, inDhulHijjah.second, inDhulHijjah.third, count = 3)
+        check("late in Dhul Hijjah it still finds next year's occasions",
+            fromThere.size == 3 && fromThere.all { it.daysAway >= 0 },
+            fromThere.map { "${it.event} +${it.daysAway}" })
+
+        println("     today (22 Sep 2026) is " +
+            Hijri.fromGregorian(2026, 9, 22).let {
+                "${it.day} ${Strings.hijriMonth(Lang.EN, it.month)} ${it.year}"
+            })
+        for (u in next) {
+            val (gy, gm, gd) = u.gregorian
+            println("     ${Strings.eventName(Lang.EN, u.event).padEnd(18)} " +
+                "${u.hijri.day} ${Strings.hijriMonth(Lang.EN, u.hijri.month)} " +
+                "${u.hijri.year}  =  $gd/$gm/$gy  (+${u.daysAway} days)")
+        }
+    }
+
+    println("\n-- the daily check-in --")
+    run {
+        val id = "7f3a91c2-4de8-4a10-9b77-2c5e1f0a8d34"
+
+        check("a fresh install is due", Ping.isDue(0L, 20_352L))
+        check("not due twice in the same day", !Ping.isDue(20_352L, 20_352L))
+        check("due again the next day", Ping.isDue(20_352L, 20_353L))
+        // A phone whose clock was wrong and has since been corrected would
+        // otherwise never ping again until the date caught up.
+        check("a clock set into the future does not lock it out",
+            Ping.isDue(29_000L, 20_353L))
+
+        val u = Ping.url("https://script.google.com/macros/s/abc/exec", id, 4, "1.3")
+        check("builds a URL", u != null, u)
+        check("carries the install id", u!!.contains("id=$id"), u)
+        check("carries both version fields", u.contains("vc=4") && u.contains("v=1.3"), u)
+        check("starts the query with ?", u.contains("exec?id="), u)
+        check("a base that already has a query gets & instead",
+            Ping.url("https://x.example/p?k=1", id, 4, "1.3")!!.contains("?k=1&id="),
+            Ping.url("https://x.example/p?k=1", id, 4, "1.3"))
+
+        // Every one of these must silently produce nothing rather than throw
+        // or, worse, send something unencrypted.
+        check("no URL configured means no ping", Ping.url("", id, 4, "1.3") == null)
+        check("plain http is refused",
+            Ping.url("http://x.example/p", id, 4, "1.3") == null)
+        check("a malformed id is refused",
+            Ping.url("https://x.example/p", "tiny", 4, "1.3") == null)
+        check("an id with a query separator in it is refused",
+            Ping.url("https://x.example/p", "abc&evil=1&x", 4, "1.3") == null)
+
+        check("a UUID is a valid id", Ping.isValidId(id))
+        check("something short is not", !Ping.isValidId("abc"))
+        check("spaces are not", !Ping.isValidId("abcdefgh ijkl"))
+
+        // The version name is the one field a person could put anything into.
+        check("spaces encode as %20, never +", Ping.encode("1.3 beta") == "1.3%20beta",
+            Ping.encode("1.3 beta"))
+        check("separators are escaped",
+            Ping.encode("a&b=c?d") == "a%26b%3Dc%3Fd", Ping.encode("a&b=c?d"))
+        check("safe characters pass through",
+            Ping.encode("Abc-1.3_x~y") == "Abc-1.3_x~y", Ping.encode("Abc-1.3_x~y"))
+        check("non-Latin text survives as UTF-8",
+            Ping.encode("نماز").startsWith("%D9%86"), Ping.encode("نماز"))
+        check("an odd version name cannot break out of the query",
+            Ping.url("https://x.example/p", id, 4, "1.3&admin=1")!!
+                .endsWith("v=1.3%26admin%3D1"),
+            Ping.url("https://x.example/p", id, 4, "1.3&admin=1"))
+    }
+
     println("\n-- alerts: what fires and when --")
     run {
         val t = PrayerTimes.forDate(2026, 9, 19, pew)

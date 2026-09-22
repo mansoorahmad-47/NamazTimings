@@ -112,6 +112,22 @@ To add it: long-press an empty part of your home screen, tap **Widgets**, find
 **Namaz Timings**, and drag it where you want. Not every launcher looks the
 same, but they all work this way.
 
+**The Islamic calendar.** Today's Hijri date sits in the header, always
+visible, and a Hijri tab lays the Islamic month out against the Gregorian one —
+each square showing the Hijri day large and the Gregorian day small, so the two
+calendars can be read together. Below it, the occasions coming up with how many
+days away each one is: Ramadan, both Eids, Ashura, Shab-e-Barat, Shab-e-Qadr,
+Shab-e-Miraj, Eid Milad-un-Nabi, the Day of Arafah and the Islamic New Year.
+
+**This date is calculated, not sighted, and it will sometimes disagree with the
+date announced in Pakistan** — usually by a day, occasionally by two. The
+Ruet-e-Hilal Committee declares the month on the evening the crescent is
+actually seen, and weather and geography move that around; no formula can
+predict it. That is not a fault to be fixed, it is the difference between a
+calculation and an observation. So there is an adjustment of up to two days
+either way, sitting on the calendar screen rather than buried in Settings.
+Follow the announcement and set it to match.
+
 **Qibla compass.** The true great-circle bearing to the Kaaba from your city,
 with a live needle. Magnetic declination is corrected for, so the needle points
 at true Qibla rather than a couple of degrees off. The bearing and distance
@@ -149,11 +165,12 @@ horizon for both, the standard across Pakistan. Muslim World League, ISNA,
 Egyptian and Umm al-Qura are also available if your mosque follows one of
 those.
 
-The calculation is covered by 231 automatic tests that run on every build,
+The calculation is covered by 272 automatic tests that run on every build,
 including the ones that actually catch mistakes: day length on the equinox must
 be 12h 07m at every latitude, sunrise and sunset must be symmetric about solar
-noon, prayer order must hold for all 66 cities across all 12 months, and Isha
-must never end after Fajr begins.
+noon, prayer order must hold for all 66 cities across all 12 months, Isha must
+never end after Fajr begins, and every single day from 1900 to 2100 must
+convert to a Hijri date and back again exactly.
 
 Sample output — Islamabad, 19 September 2026:
 
@@ -187,11 +204,57 @@ Four permissions, and the app is useful even if you refuse three of them.
 | Alarms & reminders | So a prayer alert arrives at the prayer time rather than twenty minutes later. |
 | Internet | Only to check whether a newer version exists. Prayer times never need it. |
 
-**Nothing is collected and nothing is sent anywhere.** There is no account, no
-analytics, no ads, and no server keeping your data. Your city, your language
-and your marked prayers are stored on your phone and nowhere else. The only
-thing the app ever downloads is a small file saying what the latest version
-number is.
+**There is no account, no analytics company, no advertising, and no server
+holding your data.** Your city, your language, your streaks and every prayer
+you have marked are stored on your phone and nowhere else. None of it is ever
+sent anywhere, and there is no way for anyone — including whoever built this —
+to read it.
+
+Two small things do leave the phone, both once a day, and both are listed here
+rather than buried:
+
+- **A check for a newer version.** The app downloads one small file that says
+  what the latest version number is. It sends nothing while doing so.
+- **A count, if the person who built your copy has switched it on.** The app
+  sends a random number it made up for itself on first run, plus the app's
+  version — nothing else. No name, no location, no city, no prayer times, no
+  device details. It exists so the developer knows roughly how many phones
+  still use the app, and it can be turned off in Settings. If the copy you
+  have was built without a counter configured, this never happens at all and
+  the switch is not even shown.
+
+---
+
+## Counting how many phones use it
+
+Off by default, and entirely optional. Nothing is sent until you set it up.
+
+Android cannot tell you how many phones have an app installed, and no app can
+detect its own uninstall — nothing runs after the app is removed. So the two
+numbers you can honestly have are **how many phones checked in during the last
+day**, which is the real "people are using it" figure, and **how many checked
+in during the last 30 days**, which is the nearest thing to "still installed".
+
+Setting it up takes about five minutes and costs nothing:
+
+1. Make a new Google Sheet.
+2. **Extensions → Apps Script**, delete what is there, paste in the contents
+   of [`tools/stats.gs`](tools/stats.gs), and save.
+3. **Deploy → New deployment → Web app**, with *Execute as: Me* and *Who has
+   access: Anyone*. Google will ask you to authorise it once.
+4. Copy the `https://script.google.com/macros/s/.../exec` address it gives
+   you, and paste it into `Stats.kt` as the value of `URL`.
+5. Build and send out the new version.
+
+Each phone then sends one request a day. The sheet keeps one row per phone,
+with the first and last time it was seen. The formulas in
+[`tools/stats-formulas.txt`](tools/stats-formulas.txt) turn those rows into
+the numbers.
+
+What travels is a random number generated on the phone with no connection to
+the hardware, the account or the SIM, plus the app's version. Nothing else.
+Reinstalling makes a new random number, which is exactly the intent: there is
+no way to tie it back to a person.
 
 ---
 
@@ -265,17 +328,20 @@ app/src/main/java/io/frontierlabs/namaz/
   core/Tracker.kt       prayer day, status, completion and streak rules
   core/Strings.kt       English and Urdu text, city, month and weekday names
   core/Alerts.kt        which notification fires when, and when to stay quiet
+  core/Hijri.kt         Islamic calendar conversion, month shape and occasions
+  core/Ping.kt          the daily check-in URL, and when one is due
   core/UpdateCheck.kt   update JSON parsing and the prompt decision
   MainActivity.kt       Compose UI: today, monthly chart, calendar, settings
   Prefs.kt              the stored keys, shared by the UI and the receivers
   LocationFinder.kt     coarse location to nearest city, with a timeout
+  Stats.kt              sends the check-in, if one is configured at all
   NamazWidget.kt        the home-screen widget, and how it stays current
   Notifications.kt      channels and the notifications themselves
   Scheduler.kt          turns Alerts decisions into AlarmManager alarms
   AlertReceiver.kt      an alarm fired: show it if it still matters, re-arm
   BootReceiver.kt       re-arm after reboot, clock change or reinstall
   UpdateReceiver.kt     the daily new-version check
-tests/Test.kt           231 tests, runnable on a plain JVM
+tests/Test.kt           272 tests, runnable on a plain JVM
 ```
 
 **Releasing a new version.** Bump `versionCode` and `versionName` in

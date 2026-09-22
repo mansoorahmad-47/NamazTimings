@@ -88,6 +88,17 @@ data class Str(
     val locationPrivacy: String,
     val changeAnyTime: String,
 
+    // Islamic calendar
+    val tabHijri: String,
+    val islamicDate: String,
+    val hijriAdjust: String,
+    val hijriAdjustHelp: String,
+    val hijriNote: String,
+    val comingUp: String,
+    val todayIs: String,
+    val tomorrow: String,
+    val inDays: String,
+
     // calendar
     val pickADate: String,
     val futureDay: String,
@@ -102,6 +113,8 @@ data class Str(
     val allowNotifications: String,
     val allowNotificationsHelp: String,
     val exactAlarmsNote: String,
+    val countMe: String,
+    val countMeHelp: String,
     val hasBegun: String,
     val timeToPray: String,
     val aboutToBecomeQaza: String,
@@ -240,6 +253,20 @@ object Strings {
             "Nothing is sent anywhere and nothing is stored but the city name.",
         changeAnyTime = "You can change this any time by tapping the city name.",
 
+        tabHijri = "Hijri",
+        islamicDate = "ISLAMIC DATE",
+        hijriAdjust = "Adjust by",
+        hijriAdjustHelp = "Nudge the Islamic date to match what was announced " +
+            "where you live.",
+        hijriNote = "This date is calculated, not sighted. The Ruet-e-Hilal " +
+            "Committee announces the month when the crescent is actually seen, " +
+            "which can be a day or two from this. Follow the announcement and " +
+            "set the adjustment to match.",
+        comingUp = "COMING UP",
+        todayIs = "Today",
+        tomorrow = "Tomorrow",
+        inDays = "in",
+
         pickADate = "Pick a day",
         futureDay = "Not here yet",
         markedPrayers = "marked",
@@ -255,6 +282,10 @@ object Strings {
             "can show anything.",
         exactAlarmsNote = "If alerts arrive late, turn off battery optimisation " +
             "for this app in Android settings.",
+        countMe = "Count this phone",
+        countMeHelp = "Once a day the app sends a random number so the developer " +
+            "knows how many phones still use it. No name, no location, no times \u2014 " +
+            "nothing that says who you are.",
         hasBegun = "has begun",
         timeToPray = "Time to pray.",
         aboutToBecomeQaza = "is about to become qaza",
@@ -390,6 +421,18 @@ object Strings {
             "کچھ بھی کہیں نہیں بھیجا جاتا، صرف شہر کا نام محفوظ ہوتا ہے۔",
         changeAnyTime = "آپ شہر کے نام پر دبا کر اسے کسی بھی وقت تبدیل کر سکتے ہیں۔",
 
+        tabHijri = "ہجری",
+        islamicDate = "اسلامی تاریخ",
+        hijriAdjust = "تبدیلی",
+        hijriAdjustHelp = "اسلامی تاریخ کو اپنے علاقے کے اعلان کے مطابق آگے پیچھے کریں۔",
+        hijriNote = "یہ تاریخ حساب سے نکالی گئی ہے، رویتِ ہلال سے نہیں۔ رویتِ ہلال " +
+            "کمیٹی چاند نظر آنے پر مہینے کا اعلان کرتی ہے، جو اس سے ایک دو دن آگے " +
+            "پیچھے ہو سکتا ہے۔ اعلان کی پیروی کریں اور تبدیلی اسی کے مطابق رکھیں۔",
+        comingUp = "آنے والے دن",
+        todayIs = "آج",
+        tomorrow = "کل",
+        inDays = "میں",
+
         pickADate = "دن منتخب کریں",
         futureDay = "ابھی نہیں آیا",
         markedPrayers = "نشان زد",
@@ -404,6 +447,10 @@ object Strings {
         allowNotificationsHelp = "اطلاعات دکھانے سے پہلے اینڈرائیڈ کو آپ کی اجازت درکار ہے۔",
         exactAlarmsNote = "اگر اطلاعات دیر سے آئیں تو اینڈرائیڈ کی ترتیبات میں " +
             "اس ایپ کے لیے بیٹری آپٹیمائزیشن بند کر دیں۔",
+        countMe = "اس فون کو شمار کریں",
+        countMeHelp = "دن میں ایک بار ایپ ایک بے ترتیب نمبر بھیجتی ہے تاکہ ڈویلپر کو " +
+            "معلوم ہو کہ کتنے فون ابھی استعمال کر رہے ہیں۔ نہ نام، نہ مقام، نہ اوقات \u2014 " +
+            "ایسی کوئی چیز نہیں جو بتائے کہ آپ کون ہیں۔",
         hasBegun = "کا وقت ہو گیا",
         timeToPray = "نماز کا وقت ہے۔",
         aboutToBecomeQaza = "قضا ہونے والی ہے",
@@ -482,10 +529,13 @@ object Strings {
         s.welcomeTitle, s.welcomeBody, s.useMyLocation, s.chooseMyCity,
         s.finding, s.foundYouIn, s.locationFailed, s.locationTooFar,
         s.detectCity, s.locationPrivacy, s.changeAnyTime,
+        s.tabHijri, s.islamicDate, s.hijriAdjust, s.hijriAdjustHelp,
+        s.hijriNote, s.comingUp, s.todayIs, s.tomorrow, s.inDays,
         s.pickADate, s.futureDay, s.markedPrayers,
         s.notifications, s.notifyPrayer, s.notifyPrayerHelp, s.notifyQaza,
         s.notifyQazaHelp,
         s.allowNotifications, s.allowNotificationsHelp, s.exactAlarmsNote,
+        s.countMe, s.countMeHelp,
         s.hasBegun, s.timeToPray, s.aboutToBecomeQaza, s.minutesLeft,
         s.prayItNow, s.channelPrayerName, s.channelPrayerDesc,
         s.channelQazaName, s.channelQazaDesc, s.channelUpdateName,
@@ -546,6 +596,47 @@ object Strings {
 
     private val WEEK_EN = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
     private val WEEK_UR = listOf("اتو", "پیر", "منگ", "بدھ", "جمعر", "جمعہ", "ہفتہ")
+
+    /** Islamic month name, [month] 1 = Muharram. */
+    fun hijriMonth(lang: Lang, month: Int): String =
+        if (lang == Lang.UR) HIJRI_UR[month - 1] else HIJRI_EN[month - 1]
+
+    private val HIJRI_EN = listOf(
+        "Muharram", "Safar", "Rabi\u2019 al-Awwal", "Rabi\u2019 al-Thani",
+        "Jumada al-Awwal", "Jumada al-Thani", "Rajab", "Sha\u2019ban",
+        "Ramadan", "Shawwal", "Dhul Qa\u2019dah", "Dhul Hijjah",
+    )
+    private val HIJRI_UR = listOf(
+        "محرم", "صفر", "ربیع الاول", "ربیع الثانی",
+        "جمادی الاول", "جمادی الثانی", "رجب", "شعبان",
+        "رمضان", "شوال", "ذوالقعدہ", "ذوالحجہ",
+    )
+
+    /** Name of an Islamic occasion, in the chosen language. */
+    fun eventName(lang: Lang, event: IslamicEvent): String =
+        if (lang == Lang.UR) when (event) {
+            IslamicEvent.NEW_YEAR -> "اسلامی نیا سال"
+            IslamicEvent.ASHURA -> "یومِ عاشورہ"
+            IslamicEvent.MILAD -> "عید میلاد النبی ﷺ"
+            IslamicEvent.MIRAJ -> "شبِ معراج"
+            IslamicEvent.BARAT -> "شبِ برات"
+            IslamicEvent.RAMADAN_BEGINS -> "رمضان کا آغاز"
+            IslamicEvent.QADR -> "شبِ قدر"
+            IslamicEvent.EID_FITR -> "عید الفطر"
+            IslamicEvent.ARAFAH -> "یومِ عرفہ"
+            IslamicEvent.EID_ADHA -> "عید الاضحیٰ"
+        } else when (event) {
+            IslamicEvent.NEW_YEAR -> "Islamic New Year"
+            IslamicEvent.ASHURA -> "Ashura"
+            IslamicEvent.MILAD -> "Eid Milad-un-Nabi"
+            IslamicEvent.MIRAJ -> "Shab-e-Miraj"
+            IslamicEvent.BARAT -> "Shab-e-Barat"
+            IslamicEvent.RAMADAN_BEGINS -> "Ramadan begins"
+            IslamicEvent.QADR -> "Shab-e-Qadr"
+            IslamicEvent.EID_FITR -> "Eid-ul-Fitr"
+            IslamicEvent.ARAFAH -> "Day of Arafah"
+            IslamicEvent.EID_ADHA -> "Eid-ul-Adha"
+        }
 
     /** City name in the chosen language, falling back to English. */
     fun cityName(lang: Lang, english: String): String =

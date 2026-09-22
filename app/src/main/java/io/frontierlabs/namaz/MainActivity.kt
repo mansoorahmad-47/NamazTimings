@@ -200,6 +200,10 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
         // "where are you?" on a first launch is bewildering.
         if (needsSetup) return@LaunchedEffect
         val decision = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            // Both are once-a-day and both are network, so they share a trip
+            // off the main thread. Stats.pingIfDue does nothing at all unless
+            // counting has been configured and left switched on.
+            runCatching { Stats.pingIfDue(context) }
             UpdateChecker.fetch(context)
         }
         if (decision.action != UpdateAction.NONE) update = decision
@@ -234,6 +238,10 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
     // for a printed-style timetable. The Today tab works on the prayer day
     // instead and derives its own dates -- see TodayScreen.
     val today = remember { LocalDate.now(PK) }
+    var hijriAdjust by remember { mutableIntStateOf(Prefs.hijriAdjust(prefs)) }
+    val hijriToday = remember(today, hijriAdjust) {
+        Hijri.fromGregorian(today.year, today.monthValue, today.dayOfMonth, hijriAdjust)
+    }
     var shownMonth by remember { mutableIntStateOf(today.monthValue) }
     var shownYear by remember { mutableIntStateOf(today.year) }
 
@@ -272,6 +280,15 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
                         "${Strings.provinceName(lang, city.province)}  ·  ${S.tapToChange}",
                         fontSize = 11.sp, color = MUTED,
                     )
+                    // The Islamic date belongs in the header, not buried in a
+                    // tab: it is the thing people want to glance at.
+                    Text(
+                        hijriToday.let {
+                            "${it.day} ${Strings.hijriMonth(lang, it.month)} ${it.year}"
+                        },
+                        fontSize = 11.sp, color = GOLD_DIM,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
                 TextButton(onClick = { showSettings = true }) {
                     Text(S.settings, color = GOLD, fontSize = 13.sp)
@@ -280,20 +297,29 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
 
             PillTabs(
                 selected = tab,
-                labels = listOf(S.tabToday, S.tabMonth, S.tabQibla),
+                labels = listOf(S.tabToday, S.tabMonth, S.tabHijri, S.tabQibla),
                 onSelect = { tab = it },
             )
 
             when (tab) {
                 0 -> TodayScreen(city, settings, prefs, lang)
-                2 -> QiblaScreen(city, lang)
-                else -> MonthScreen(
+                1 -> MonthScreen(
                     city, settings, shownYear, shownMonth, lang,
                     isCurrentMonth = shownMonth == today.monthValue && shownYear == today.year,
                     todayDay = today.dayOfMonth,
                     onMonth = { shownMonth = it },
                     onYear = { shownYear = it },
                 )
+                2 -> HijriScreen(
+                    today = today,
+                    lang = lang,
+                    adjust = hijriAdjust,
+                    onAdjust = {
+                        hijriAdjust = it
+                        Prefs.setHijriAdjust(prefs, it)
+                    },
+                )
+                else -> QiblaScreen(city, lang)
             }
         }
 
@@ -1065,6 +1091,281 @@ fun MonthScreen(
     }
 }
 
+/**
+ * The Islamic calendar.
+ *
+ * Three things, in the order they are wanted: today's date, the month laid out
+ * against the Gregorian one, and what is coming.
+ *
+ * The adjustment sits between the date and the month rather than hidden in
+ * Settings, because it is not really a setting — it is part of reading the
+ * date honestly. The calculated calendar and the announced one drift apart by
+ * a day or two, and someone who has just heard the Ruet-e-Hilal announcement
+ * should be able to line the app up with it without hunting.
+ */
+@Composable
+fun HijriScreen(
+    today: LocalDate,
+    lang: Lang,
+    adjust: Int,
+    onAdjust: (Int) -> Unit,
+) {
+    val S = LocalStr.current
+
+    val hijri = remember(today, adjust) {
+        Hijri.fromGregorian(today.year, today.monthValue, today.dayOfMonth, adjust)
+    }
+    var shownYear by remember(hijri.year) { mutableIntStateOf(hijri.year) }
+    var shownMonth by remember(hijri.month) { mutableIntStateOf(hijri.month) }
+
+    val events = remember(today, adjust) {
+        Hijri.upcoming(today.year, today.monthValue, today.dayOfMonth, 5, adjust)
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(top = 12.dp),
+    ) {
+
+        // --- today ---------------------------------------------------------
+        GradientPanel(
+            Modifier.fillMaxWidth(),
+            colors = listOf(Color(0x33D9B45B), Color(0x0FD9B45B)),
+            stroke = Color(0x33D9B45B),
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(S.islamicDate, fontSize = 10.sp, color = MUTED,
+                    fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                Spacer(Modifier.height(10.dp))
+                Text("${hijri.day}", fontSize = 40.sp, fontWeight = FontWeight.Bold,
+                    color = GOLD)
+                Text(Strings.hijriMonth(lang, hijri.month), fontSize = 20.sp,
+                    fontWeight = FontWeight.SemiBold)
+                Text("${hijri.year} AH", fontSize = 13.sp, color = MUTED)
+                Spacer(Modifier.height(10.dp))
+                HorizontalDivider(color = FAINT)
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "${Strings.weekdayShort(lang, today.dayOfWeek.value % 7)}  " +
+                        "${today.dayOfMonth} ${Strings.monthName(lang, today.monthValue)} " +
+                        "${today.year}",
+                    fontSize = 13.sp, color = MUTED,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // --- the adjustment -------------------------------------------------
+        Panel(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(S.hijriAdjust, fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold)
+                        Text(S.hijriAdjustHelp, fontSize = 10.5.sp, color = MUTED)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    StepperButton("\u2212") {
+                        if (adjust > -Hijri.MAX_ADJUST) onAdjust(adjust - 1)
+                    }
+                    Box(
+                        Modifier.width(52.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (adjust > 0) "+$adjust" else "$adjust",
+                            fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                            color = if (adjust == 0) MUTED else GOLD,
+                        )
+                    }
+                    StepperButton("+") {
+                        if (adjust < Hijri.MAX_ADJUST) onAdjust(adjust + 1)
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(S.hijriNote, fontSize = 10.5.sp, color = MUTED)
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // --- the month ------------------------------------------------------
+        Panel(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = {
+                        if (shownMonth == 1) { shownMonth = 12; shownYear-- }
+                        else shownMonth--
+                    }) { Text("\u2039", fontSize = 20.sp, color = GOLD) }
+                    Text(
+                        "${Strings.hijriMonth(lang, shownMonth)} $shownYear",
+                        Modifier.weight(1f),
+                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                    )
+                    TextButton(onClick = {
+                        if (shownMonth == 12) { shownMonth = 1; shownYear++ }
+                        else shownMonth++
+                    }) { Text("\u203A", fontSize = 20.sp, color = GOLD) }
+                }
+
+                Row(Modifier.fillMaxWidth()) {
+                    for (i in 0..6) {
+                        Text(
+                            Strings.weekdayShort(lang, i), Modifier.weight(1f),
+                            fontSize = 10.sp, color = MUTED,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+
+                // The first of the month can land on any weekday, so where the
+                // grid starts is computed from the day number itself rather
+                // than assumed.
+                // `adjust` has to be a key here. Nudging by a day usually
+                // leaves the Hijri month and year alone, so without it the
+                // grid would keep its old alignment while the date above it
+                // moved -- the two would disagree on screen.
+                val firstJdn = remember(shownYear, shownMonth, adjust) {
+                    Hijri.toJdn(shownYear, shownMonth, 1) - adjust
+                }
+                val lead = Hijri.weekdayIndex(firstJdn)
+                val length = Hijri.monthLength(shownYear, shownMonth)
+                val weeks = (lead + length + 6) / 7
+                val todayJdn = Hijri.gregorianToJdn(
+                    today.year, today.monthValue, today.dayOfMonth)
+
+                for (w in 0 until weeks) {
+                    Row(Modifier.fillMaxWidth()) {
+                        for (c in 0..6) {
+                            val n = w * 7 + c - lead + 1
+                            if (n < 1 || n > length) {
+                                Spacer(Modifier.weight(1f).height(42.dp))
+                            } else {
+                                val jdn = firstJdn + (n - 1)
+                                val (_, _, gd) = Hijri.jdnToGregorian(jdn)
+                                HijriCell(
+                                    modifier = Modifier.weight(1f),
+                                    hijriDay = n,
+                                    gregorianDay = gd,
+                                    isToday = jdn == todayJdn,
+                                    isEvent = IslamicEvent.entries.any {
+                                        it.month == shownMonth && it.day == n
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // --- what is coming -------------------------------------------------
+        Panel(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text(S.comingUp, fontSize = 9.sp, color = MUTED,
+                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Spacer(Modifier.height(10.dp))
+                events.forEachIndexed { i, u ->
+                    if (i > 0) HorizontalDivider(color = FAINT)
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(Strings.eventName(lang, u.event), fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (u.daysAway == 0) GOLD else Color.Unspecified)
+                            Text(
+                                "${u.hijri.day} ${Strings.hijriMonth(lang, u.hijri.month)} " +
+                                    "${u.hijri.year}  \u00B7  " +
+                                    "${u.gregorian.third} " +
+                                    "${Strings.monthName(lang, u.gregorian.second)} " +
+                                    "${u.gregorian.first}",
+                                fontSize = 11.sp, color = MUTED,
+                            )
+                        }
+                        Text(
+                            when (u.daysAway) {
+                                0 -> S.todayIs
+                                1 -> S.tomorrow
+                                else -> "${S.inDays} ${u.daysAway} ${S.days}"
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (u.daysAway <= 1) GREEN else MUTED,
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+        Footer()
+        Spacer(Modifier.height(40.dp))
+    }
+}
+
+@Composable
+private fun StepperButton(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(Color(0x22D9B45B))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = GOLD)
+    }
+}
+
+/** One square of the Islamic month: the Hijri day large, the Gregorian small. */
+@Composable
+private fun HijriCell(
+    modifier: Modifier,
+    hijriDay: Int,
+    gregorianDay: Int,
+    isToday: Boolean,
+    isEvent: Boolean,
+) {
+    Box(
+        modifier
+            .height(42.dp)
+            .padding(1.dp)
+            .clip(R12)
+            .background(if (isToday) Color(0x33D9B45B) else Color.Transparent)
+            .border(
+                BorderStroke(1.dp, if (isToday) GOLD else Color.Transparent), R12),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                "$hijriDay",
+                fontSize = 14.sp,
+                fontWeight = if (isToday || isEvent) FontWeight.Bold else FontWeight.Normal,
+                color = when {
+                    isToday -> GOLD
+                    isEvent -> GREEN
+                    else -> Color.Unspecified
+                },
+            )
+            Text("$gregorianDay", fontSize = 8.5.sp, color = MUTED)
+        }
+    }
+}
+
 @Composable
 fun Footer() {
     val S = LocalStr.current
@@ -1805,6 +2106,7 @@ fun SettingsDialog(
     var lang by remember { mutableStateOf(currentLang) }
     var notifyPrayer by remember { mutableStateOf(Prefs.prayerAlerts(prefs)) }
     var notifyQaza by remember { mutableStateOf(Prefs.qazaAlerts(prefs)) }
+    var countMe by remember { mutableStateOf(Prefs.countMe(prefs)) }
 
     val blocked = !Notifications.allowed(context)
 
@@ -1814,6 +2116,7 @@ fun SettingsDialog(
             TextButton(onClick = {
                 Prefs.setPrayerAlerts(prefs, notifyPrayer)
                 Prefs.setQazaAlerts(prefs, notifyQaza)
+                Prefs.setCountMe(prefs, countMe)
                 onSave(current.copy(method = method, asr = asr), lang)
                 // The switches only take effect once the alarms are redrawn.
                 runCatching { Scheduler.armAll(context) }
@@ -1854,6 +2157,13 @@ fun SettingsDialog(
                 SwitchRow(S.notifyQaza, S.notifyQazaHelp, notifyQaza) { notifyQaza = it }
                 Spacer(Modifier.height(4.dp))
                 Text(S.exactAlarmsNote, fontSize = 10.5.sp, color = MUTED)
+
+                // Hidden entirely when counting was never set up, rather than
+                // offering a switch that does nothing.
+                if (Stats.configured()) {
+                    Spacer(Modifier.height(14.dp))
+                    SwitchRow(S.countMe, S.countMeHelp, countMe) { countMe = it }
+                }
 
                 Spacer(Modifier.height(14.dp))
                 SectionLabel(S.asrMethod)

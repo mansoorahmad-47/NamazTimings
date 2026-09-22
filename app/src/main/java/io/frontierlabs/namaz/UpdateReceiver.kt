@@ -28,23 +28,30 @@ class UpdateReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val prefs = Prefs.get(context)
-        if (!Prefs.updateAlerts(prefs)) return
-        if (!Notifications.allowed(context)) return
 
         // Network on the main thread would crash; goAsync buys a short window
         // on a background thread, which is plenty for one small file.
         val pending = goAsync()
         Thread {
             try {
-                val decision = UpdateChecker.fetch(context)
-                val info = decision.info
-                if (info != null &&
-                    decision.action != UpdateAction.NONE &&
-                    info.latestVersionCode > Prefs.lastNotifiedVersion(prefs)
-                ) {
-                    Notifications.ensureChannels(context)
-                    Notifications.postUpdate(context, info)
-                    Prefs.setLastNotifiedVersion(prefs, info.latestVersionCode)
+                // The check-in rides along here rather than waking the phone a
+                // second time. It sits above the notification guards on
+                // purpose: someone who has denied notifications still has the
+                // app installed, and leaving them out would quietly understate
+                // the count.
+                runCatching { Stats.pingIfDue(context) }
+
+                if (Prefs.updateAlerts(prefs) && Notifications.allowed(context)) {
+                    val decision = UpdateChecker.fetch(context)
+                    val info = decision.info
+                    if (info != null &&
+                        decision.action != UpdateAction.NONE &&
+                        info.latestVersionCode > Prefs.lastNotifiedVersion(prefs)
+                    ) {
+                        Notifications.ensureChannels(context)
+                        Notifications.postUpdate(context, info)
+                        Prefs.setLastNotifiedVersion(prefs, info.latestVersionCode)
+                    }
                 }
             } catch (_: Throwable) {
                 // Fail open, always.
