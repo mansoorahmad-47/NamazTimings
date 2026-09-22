@@ -13,6 +13,7 @@ import android.view.View
 import android.widget.RemoteViews
 import io.frontierlabs.namaz.core.Clock
 import io.frontierlabs.namaz.core.DayTimes
+import io.frontierlabs.namaz.core.Hijri
 import io.frontierlabs.namaz.core.PrayerStatus
 import io.frontierlabs.namaz.core.PrayerTimes
 import io.frontierlabs.namaz.core.Strings
@@ -162,6 +163,7 @@ class NamazWidget : AppWidgetProvider() {
                 if (snap.current) "${snap.start.format12()}  →  ${snap.end.format12()}"
                 else "${s.upNext}  ·  ${snap.start.format12()}",
             )
+            views.setTextViewText(R.id.w_hijri, snap.hijri)
 
             // Marked / not marked, in the corner.
             views.setTextViewText(R.id.w_status, if (snap.done) "✓" else "○")
@@ -254,6 +256,7 @@ class NamazWidget : AppWidgetProvider() {
             val prayer: String,
             val start: Clock,
             val end: Clock,
+            val hijri: String,
             /** False when nothing is due and this is the *next* prayer instead. */
             val current: Boolean,
             val done: Boolean,
@@ -297,6 +300,10 @@ class NamazWidget : AppWidgetProvider() {
             val streak = streakSummary(day.year, day.monthValue, day.dayOfMonth) { y, m, d ->
                 Tracker.isDayComplete(Prefs.readDone(prefs, y, m, d))
             }.current
+            val hijriDate = Hijri.fromGregorian(
+                day.year, day.monthValue, day.dayOfMonth, Prefs.hijriAdjust(prefs),
+            )
+            val hijri = "${hijriDate.day} ${Strings.hijriMonth(lang, hijriDate.month)} ${hijriDate.year} AH"
 
             val current = Tracker.currentPrayer(pd.dayMinutes, t)
             if (current != null) {
@@ -306,6 +313,7 @@ class NamazWidget : AppWidgetProvider() {
                     prayer = name,
                     start = start,
                     end = end,
+                    hijri = hijri,
                     current = true,
                     done = done.contains(name),
                     doneCount = Tracker.completedCount(done),
@@ -328,6 +336,7 @@ class NamazWidget : AppWidgetProvider() {
                 prayer = nextName,
                 start = nextStart,
                 end = nextEnd,
+                hijri = hijri,
                 current = false,
                 done = done.contains(nextName),
                 doneCount = Tracker.completedCount(done),

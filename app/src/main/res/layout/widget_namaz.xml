@@ -65,6 +65,17 @@
         android:ellipsize="end"
         android:text="" />
 
+    <TextView
+        android:id="@+id/w_hijri"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
+        android:textSize="10sp"
+        android:textColor="@color/w_muted"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:text="" />
+
     <!-- Live countdown, ticked by the system rather than by this app -->
     <LinearLayout
         android:layout_width="match_parent"
