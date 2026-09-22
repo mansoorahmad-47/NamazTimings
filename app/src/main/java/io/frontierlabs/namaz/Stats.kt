@@ -30,7 +30,7 @@ object Stats {
      * Must be https. [Ping.url] refuses anything else rather than sending a
      * request in the clear.
      */
-    const val URL = ""
+    const val URL = "https://script.google.com/macros/s/AKfycbx7EKR4kUfE6IN8XtLkw-U8-qIoQBn34rfivEjmprqdtQd-585jEqRkl5t6bRF28Fu6sQ/exec"
 
     /** False when counting has not been set up, so the UI can hide the switch. */
     fun configured(): Boolean = URL.isNotBlank()
