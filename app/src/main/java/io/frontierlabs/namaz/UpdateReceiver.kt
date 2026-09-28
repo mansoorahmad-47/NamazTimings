@@ -12,12 +12,12 @@ import io.frontierlabs.namaz.core.UpdateCheck
  *
  * Nothing pushes anything to these phones. There is no server and no Firebase
  * account behind this — the app simply asks, once a day, for one small JSON
- * file at a URL you control, and puts a notification up if the number in it is
- * higher than the number it was built with. Tapping the notification opens the
- * APK link directly.
+ * file at a URL you control. If the number in it is higher than the number
+ * it was built with, [UpdateJob] downloads the APK and installs it -- silently
+ * where Android allows that, otherwise with a "tap to install" notification.
  *
  * Practically: to ship a new version you publish the APK somewhere and edit
- * two numbers in that JSON file. Within a day every phone has been told.
+ * two numbers in that JSON file. Within a day every phone has it.
  *
  * Two things this deliberately does not do. It does not nag: a version is
  * announced once and then stays quiet until the next one. And it never gets
@@ -27,8 +27,6 @@ import io.frontierlabs.namaz.core.UpdateCheck
 class UpdateReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        val prefs = Prefs.get(context)
-
         // Network on the main thread would crash; goAsync buys a short window
         // on a background thread, which is plenty for one small file.
         val pending = goAsync()
@@ -41,18 +39,16 @@ class UpdateReceiver : BroadcastReceiver() {
                 // the count.
                 runCatching { Stats.pingIfDue(context) }
 
-                if (Prefs.updateAlerts(prefs) && Notifications.allowed(context)) {
-                    val decision = UpdateChecker.fetch(context)
-                    val info = decision.info
-                    if (info != null &&
-                        decision.action != UpdateAction.NONE &&
-                        info.latestVersionCode > Prefs.lastNotifiedVersion(prefs)
-                    ) {
-                        Notifications.ensureChannels(context)
-                        Notifications.postUpdate(context, info)
-                        Prefs.setLastNotifiedVersion(prefs, info.latestVersionCode)
-                    }
+                // The fetch runs even with notifications off: it also brings
+                // down the remote settings, and a silent self-update needs no
+                // notification at all.
+                val decision = UpdateChecker.fetch(context)
+                if (decision.action != UpdateAction.NONE && decision.info != null) {
+                    // Downloading an APK takes longer than a receiver may
+                    // run, so it is handed to a job that waits for a network.
+                    UpdateJob.schedule(context)
                 }
+                runCatching { NamazWidget.refresh(context) }   // a new Hijri correction
             } catch (_: Throwable) {
                 // Fail open, always.
             } finally {
@@ -94,7 +90,13 @@ object UpdateChecker {
         info.versionCode
     }.getOrDefault(0)
 
-    /** Blocking. Call it off the main thread. Never throws. */
+    /**
+     * Blocking. Call it off the main thread. Never throws.
+     *
+     * Also stores the remote settings from the same file (the Hijri
+     * correction, the banner), so every check -- on opening the app and in
+     * the background -- keeps them current without a second download.
+     */
     fun fetch(context: Context): io.frontierlabs.namaz.core.UpdateDecision {
         val body = runCatching {
             val conn = java.net.URL(URL).openConnection() as java.net.HttpURLConnection
@@ -109,6 +111,9 @@ object UpdateChecker {
             }
         }.getOrNull()
 
+        UpdateCheck.parseConfig(body)?.let { cfg ->
+            runCatching { Prefs.applyRemote(Prefs.get(context), cfg) }
+        }
         return UpdateCheck.check(installedVersion(context), body)
     }
 }

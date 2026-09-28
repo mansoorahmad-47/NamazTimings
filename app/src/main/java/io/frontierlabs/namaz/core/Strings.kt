@@ -179,6 +179,14 @@ data class Str(
     val downloadUpdate: String,
     val later: String,
     val currentVersion: String,
+    val installUpdate: String,
+    val tapToInstall: String,
+    val downloading: String,
+    val installing: String,
+    val allowInstalls: String,
+    val allowInstallsHelp: String,
+    val updateFailed: String,
+    val downloadInBrowser: String,
 )
 
 object Strings {
@@ -361,6 +369,16 @@ object Strings {
         downloadUpdate = "Download update",
         later = "Later",
         currentVersion = "You have version",
+        installUpdate = "Install update",
+        tapToInstall = "Downloaded. Tap to install it.",
+        downloading = "Downloading…",
+        installing = "Installing…",
+        allowInstalls = "Allow updates",
+        allowInstallsHelp = "One time only: Android will ask you to allow Namaz " +
+            "Timings to install its own updates. Switch it on, then come back here.",
+        updateFailed = "The update could not be installed. You can download it " +
+            "from the website instead.",
+        downloadInBrowser = "Download from website",
     )
 
     val UR = Str(
@@ -536,6 +554,16 @@ object Strings {
         downloadUpdate = "اپ ڈیٹ ڈاؤن لوڈ کریں",
         later = "بعد میں",
         currentVersion = "آپ کے پاس ورژن ہے",
+        installUpdate = "اپ ڈیٹ انسٹال کریں",
+        tapToInstall = "ڈاؤن لوڈ ہو گیا۔ انسٹال کرنے کے لیے دبائیں۔",
+        downloading = "ڈاؤن لوڈ ہو رہا ہے…",
+        installing = "انسٹال ہو رہا ہے…",
+        allowInstalls = "اپ ڈیٹ کی اجازت دیں",
+        allowInstallsHelp = "صرف ایک بار: اینڈرائیڈ پوچھے گا کہ کیا نماز ٹائمنگز " +
+            "کو اپنی اپ ڈیٹ انسٹال کرنے کی اجازت ہے۔ اسے آن کریں، پھر یہاں واپس آئیں۔",
+        updateFailed = "اپ ڈیٹ انسٹال نہیں ہو سکی۔ آپ اسے ویب سائٹ سے ڈاؤن لوڈ " +
+            "کر سکتے ہیں۔",
+        downloadInBrowser = "ویب سائٹ سے ڈاؤن لوڈ کریں",
     )
 
     fun of(lang: Lang): Str = if (lang == Lang.UR) UR else EN
@@ -578,6 +606,8 @@ object Strings {
         s.developedBy, s.footerNote, s.followMasjid,
         s.updateRequired, s.updateAvailable, s.updateBlockedNote,
         s.downloadUpdate, s.later, s.currentVersion,
+        s.installUpdate, s.tapToInstall, s.downloading, s.installing,
+        s.allowInstalls, s.allowInstallsHelp, s.updateFailed, s.downloadInBrowser,
     )
 
     /** Prayer name in the chosen language. */

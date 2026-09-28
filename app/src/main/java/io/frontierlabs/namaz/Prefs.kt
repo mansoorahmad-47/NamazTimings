@@ -173,4 +173,54 @@ object Prefs {
 
     fun setLastNotifiedVersion(prefs: SharedPreferences, code: Int) =
         prefs.edit().putInt("updateNotified", code).apply()
+
+    /**
+     * A version Android refused to install -- usually an APK signed with a
+     * different key. Remembered so the app stops retrying it every day and
+     * offers the browser download instead.
+     */
+    fun installFailedVersion(prefs: SharedPreferences) = prefs.getInt("installFailed", 0)
+
+    fun setInstallFailedVersion(prefs: SharedPreferences, code: Int) =
+        prefs.edit().putInt("installFailed", code).apply()
+
+    // --- remote settings (see core.RemoteConfig) ---------------------------
+
+    /**
+     * Store what update.json says. A new Hijri correction replaces the
+     * user's own adjustment once; the same value arriving again every day
+     * does not, or nobody could ever change it back by hand.
+     */
+    fun applyRemote(prefs: SharedPreferences, cfg: io.frontierlabs.namaz.core.RemoteConfig) {
+        val e = prefs.edit()
+        val seen = if (prefs.contains("hijriRemote")) prefs.getInt("hijriRemote", 0) else null
+        if (cfg.hijriAdjust != null && cfg.hijriAdjust != seen) {
+            e.putInt("hijriRemote", cfg.hijriAdjust)
+            e.putInt("hijriAdjust", cfg.hijriAdjust)
+        }
+        if (cfg.announcement != null) e.putString("announcement", cfg.announcement)
+        else e.remove("announcement")
+        if (cfg.announcementUr != null) e.putString("announcementUr", cfg.announcementUr)
+        else e.remove("announcementUr")
+        e.apply()
+    }
+
+    /** Identifies the current banner, whichever languages it was given in. */
+    private fun announcementKey(prefs: SharedPreferences): String? =
+        prefs.getString("announcement", null) ?: prefs.getString("announcementUr", null)
+
+    /** The banner to show in [lang], or null when there is none or it was closed. */
+    fun announcement(prefs: SharedPreferences, lang: io.frontierlabs.namaz.core.Lang): String? {
+        val key = announcementKey(prefs) ?: return null
+        // Closing hides this banner only; a new announcement shows again.
+        if (key == prefs.getString("announcementClosed", null)) return null
+        return if (lang == io.frontierlabs.namaz.core.Lang.UR)
+            prefs.getString("announcementUr", null) ?: key
+        else prefs.getString("announcement", null) ?: key
+    }
+
+    fun closeAnnouncement(prefs: SharedPreferences) {
+        val key = announcementKey(prefs) ?: return
+        prefs.edit().putString("announcementClosed", key).apply()
+    }
 }

@@ -1,7 +1,7 @@
 {
-  "latestVersionCode": 6,
-  "latestVersionName": "1.5",
+  "latestVersionCode": 7,
+  "latestVersionName": "1.6",
   "minSupportedVersionCode": 0,
-  "downloadUrl": "https://github.com/mansoorahmad-47/NamazTimings/releases/download/v1.5/NamazTimings.apk",
-  "notes": "Islamic Calender added"
+  "downloadUrl": "https://github.com/mansoorahmad-47/NamazTimings/releases/download/v1.6/NamazTimings.apk",
+  "notes": "Qibla through internet for mobiles having no compass, timer converted to real time"
 }

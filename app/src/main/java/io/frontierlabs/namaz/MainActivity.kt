@@ -76,6 +76,12 @@ class MainActivity : ComponentActivity() {
         // sat in the background, or a permission that was granted in
         // Android's settings rather than in the app.
         runCatching { Scheduler.armAll(this) }
+        SelfUpdate.appVisible = true
+    }
+
+    override fun onPause() {
+        super.onPause()
+        SelfUpdate.appVisible = false
     }
 }
 
@@ -196,6 +202,10 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
         }
     }
 
+    // Bumped when a check has brought down new remote settings, so the
+    // things that read them (the Hijri date, the banner) read them again.
+    var remoteVersion by remember { mutableIntStateOf(0) }
+
     // Fails open by design: any network or parsing problem leaves `update`
     // null and the app fully usable. See UpdateCheck's documentation.
     LaunchedEffect(needsSetup) {
@@ -209,6 +219,8 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
             runCatching { Stats.pingIfDue(context) }
             UpdateChecker.fetch(context)
         }
+        remoteVersion++
+        runCatching { NamazWidget.refresh(context) }
         if (decision.action != UpdateAction.NONE) update = decision
     }
 
@@ -243,7 +255,11 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
     // Followed, not remembered once, so the header's Islamic date and the
     // month chart's highlight move on at midnight if the app is left open.
     val today = rememberTicker(60_000).toLocalDate()
-    var hijriAdjust by remember { mutableIntStateOf(Prefs.hijriAdjust(prefs)) }
+    var hijriAdjust by remember(remoteVersion) { mutableIntStateOf(Prefs.hijriAdjust(prefs)) }
+    var announcementClosed by remember { mutableIntStateOf(0) }
+    val announcement = remember(remoteVersion, lang, announcementClosed) {
+        Prefs.announcement(prefs, lang)
+    }
     val hijriToday = remember(today, hijriAdjust) {
         Hijri.fromGregorian(today.year, today.monthValue, today.dayOfMonth, hijriAdjust)
     }
@@ -305,6 +321,27 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
                 labels = listOf(S.tabToday, S.tabMonth, S.tabHijri, S.tabQibla),
                 onSelect = { tab = it },
             )
+
+            // The banner from update.json, e.g. "Eid is on Friday".
+            announcement?.let { text ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(top = 10.dp)
+                        .clip(R16)
+                        .background(Color(0x22D9B45B))
+                        .border(BorderStroke(1.dp, Color(0x33D9B45B)), R16)
+                        .padding(start = 14.dp, top = 10.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text, Modifier.weight(1f), fontSize = 13.sp, color = GOLD)
+                    TextButton(onClick = {
+                        Prefs.closeAnnouncement(prefs)
+                        announcementClosed++
+                    }) { Text("✕", color = MUTED, fontSize = 14.sp) }
+                }
+            }
 
             when (tab) {
                 0 -> TodayScreen(city, settings, prefs, lang)
@@ -2075,17 +2112,74 @@ fun UpdateDialog(decision: UpdateDecision, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val info = decision.info ?: return
     val forced = decision.action == UpdateAction.REQUIRED
+    val prefs = remember { Prefs.get(context) }
+    val scope = rememberCoroutineScope()
+
+    // The APK starts downloading the moment the dialog opens, so by the time
+    // someone has read the notes, Install is usually ready to tap.
+    var file by remember(info) { mutableStateOf<java.io.File?>(null) }
+    var progress by remember(info) { mutableFloatStateOf(0f) }
+    var downloading by remember(info) { mutableStateOf(true) }
+    var installing by remember { mutableStateOf(false) }
+    var canInstall by remember { mutableStateOf(SelfUpdate.canInstall(context)) }
+    // Android refused this version before, or it cannot be downloaded: the
+    // browser download, which is how every update used to work, still does.
+    var failed by remember(info) {
+        mutableStateOf(Prefs.installFailedVersion(prefs) >= info.latestVersionCode)
+    }
+
+    LaunchedEffect(info) {
+        if (failed) { downloading = false; return@LaunchedEffect }
+        val f = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            SelfUpdate.download(context, info) { p -> progress = p }
+        }
+        file = f
+        downloading = false
+        if (f == null) failed = true
+    }
+
+    // Back from Android's "Install unknown apps" setting, or from its install
+    // screen after pressing Cancel.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        canInstall = SelfUpdate.canInstall(context)
+        installing = false
+        if (Prefs.installFailedVersion(prefs) >= info.latestVersionCode) failed = true
+    }
 
     AlertDialog(
         // A forced update cannot be dismissed by tapping away or pressing back.
         onDismissRequest = { if (!forced) onDismiss() },
         confirmButton = {
-            TextButton(onClick = {
-                runCatching {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl)))
+            val f = file
+            when {
+                failed -> TextButton(onClick = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl)))
+                    }
+                }) { Text(S.downloadInBrowser, color = GOLD, fontWeight = FontWeight.Bold) }
+
+                downloading || f == null -> TextButton(onClick = {}, enabled = false) {
+                    Text("${S.downloading} ${Math.round(progress * 100)}%")
                 }
-            }) { Text(S.downloadUpdate, color = GOLD, fontWeight = FontWeight.Bold) }
+
+                !canInstall -> TextButton(onClick = {
+                    runCatching { context.startActivity(SelfUpdate.permissionIntent(context)) }
+                }) { Text(S.allowInstalls, color = GOLD, fontWeight = FontWeight.Bold) }
+
+                installing -> TextButton(onClick = {}, enabled = false) { Text(S.installing) }
+
+                else -> TextButton(onClick = {
+                    installing = true
+                    scope.launch {
+                        val apk = f ?: return@launch
+                        val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            SelfUpdate.install(context, apk, info, interactive = true)
+                        }
+                        if (!ok) { installing = false; failed = true }
+                    }
+                }) { Text(S.installUpdate, color = GOLD, fontWeight = FontWeight.Bold) }
+            }
         },
         dismissButton = {
             if (!forced) TextButton(onClick = onDismiss) { Text(S.later) }
@@ -2104,6 +2198,24 @@ fun UpdateDialog(decision: UpdateDecision, onDismiss: () -> Unit) {
                 if (info.notes.isNotBlank()) {
                     Spacer(Modifier.height(6.dp))
                     Text(info.notes, fontSize = 13.sp)
+                }
+                when {
+                    failed -> {
+                        Spacer(Modifier.height(10.dp))
+                        Text(S.updateFailed, fontSize = 12.sp, color = AMBER)
+                    }
+                    downloading -> {
+                        Spacer(Modifier.height(12.dp))
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = GOLD,
+                        )
+                    }
+                    !canInstall -> {
+                        Spacer(Modifier.height(10.dp))
+                        Text(S.allowInstallsHelp, fontSize = 12.sp, color = MUTED)
+                    }
                 }
             }
         },

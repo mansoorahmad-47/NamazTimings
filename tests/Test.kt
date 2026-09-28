@@ -565,6 +565,26 @@ fun main() {
     check("Maghrib gets earlier through September",
         sep.last().second.maghrib.minutes < sep.first().second.maghrib.minutes)
 
+    println("\n-- remote settings in update.json --")
+    val withCfg = """{"latestVersionCode": 7, "downloadUrl": "https://x.com/a.apk",
+        "hijriAdjust": -1, "announcement": "Eid is on Friday",
+        "announcementUr": "عید جمعہ کو ہے"}"""
+    val cfg = UpdateCheck.parseConfig(withCfg)
+    check("reads a negative Hijri correction", cfg?.hijriAdjust == -1, cfg)
+    check("reads the announcement", cfg?.announcement == "Eid is on Friday", cfg)
+    check("reads the Urdu announcement", cfg?.announcementUr == "عید جمعہ کو ہے", cfg)
+    val bare = UpdateCheck.parseConfig("""{"latestVersionCode": 7}""")
+    check("absent fields are null, not defaults",
+        bare != null && bare.hijriAdjust == null && bare.announcement == null, bare)
+    check("an out-of-range correction is ignored, not clamped",
+        UpdateCheck.parseConfig("""{"latestVersionCode": 7, "hijriAdjust": 9}""")
+            ?.hijriAdjust == null)
+    check("a page that is not ours changes nothing",
+        UpdateCheck.parseConfig("<html>404</html>") == null &&
+            UpdateCheck.parseConfig(null) == null)
+    check("the settings do not disturb the version check",
+        UpdateCheck.check(6, withCfg).action == UpdateAction.OPTIONAL)
+
     println("\n-- clock formatting --")
     check("midnight is 12:00 AM", Clock(0).format12() == "12:00 AM", Clock(0).format12())
     check("noon is 12:00 PM", Clock(720).format12() == "12:00 PM", Clock(720).format12())

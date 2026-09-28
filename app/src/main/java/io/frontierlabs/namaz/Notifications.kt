@@ -118,20 +118,16 @@ object Notifications {
     }
 
     /**
-     * "A new version is ready", with the download link on the tap.
+     * "A new version is ready". Tapping opens the app, whose update dialog
+     * downloads and installs it -- no browser, no hunting for a file.
      *
      * This is the whole point of the update mechanism for a sideloaded app:
-     * the family does not check anything, so the phone has to tell them, and
-     * tapping has to land directly on the APK.
+     * the family does not check anything, so the phone has to tell them.
      */
     fun postUpdate(context: Context, info: UpdateInfo) {
         val s = Strings.of(Prefs.lang(Prefs.get(context)))
 
-        val open = PendingIntent.getActivity(
-            context, 1,
-            Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl)),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val open = openApp(context)
 
         val body = buildString {
             append(s.tapToDownload)
@@ -149,5 +145,31 @@ object Notifications {
             .build()
 
         runCatching { NotificationManagerCompat.from(context).notify(ID_UPDATE, n) }
+    }
+
+    /**
+     * The update is downloaded and Android only wants a confirmation. The tap
+     * opens Android's own install screen directly, one tap from done.
+     */
+    fun postInstallReady(context: Context, confirm: Intent, versionName: String) {
+        val s = Strings.of(Prefs.lang(Prefs.get(context)))
+        val tap = PendingIntent.getActivity(
+            context, 2, confirm,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val n = NotificationCompat.Builder(context, CH_UPDATE)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("${s.newVersionReady} — $versionName")
+            .setContentText(s.tapToInstall)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(tap)
+            .build()
+        runCatching { NotificationManagerCompat.from(context).notify(ID_UPDATE, n) }
+    }
+
+    /** Once the update is in, "a new version is ready" is no longer true. */
+    fun cancelUpdate(context: Context) {
+        runCatching { NotificationManagerCompat.from(context).cancel(ID_UPDATE) }
     }
 }

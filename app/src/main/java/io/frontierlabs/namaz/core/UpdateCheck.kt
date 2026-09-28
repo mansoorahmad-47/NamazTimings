@@ -91,4 +91,49 @@ object UpdateCheck {
     /** Convenience: parse and decide in one step. */
     fun check(installedVersionCode: Int, json: String?): UpdateDecision =
         decide(installedVersionCode, parse(json))
+
+    /**
+     * The settings riding along in the same file. See [RemoteConfig].
+     *
+     * Null when the document is not ours at all -- a 404 page, a captive
+     * Wi-Fi portal, an empty body. That distinction matters: a missing
+     * `announcement` in a real file means "take the banner down", but a
+     * failed fetch must leave everything on the phone exactly as it was.
+     */
+    fun parseConfig(json: String?): RemoteConfig? {
+        if (json.isNullOrBlank() || intField(json, "latestVersionCode") == null) return null
+        return RemoteConfig(
+            // Out of range is treated as a typo and ignored, not clamped:
+            // a clamped typo would still move everyone's date.
+            hijriAdjust = signedIntField(json, "hijriAdjust")
+                ?.takeIf { it in -Hijri.MAX_ADJUST..Hijri.MAX_ADJUST },
+            announcement = stringField(json, "announcement"),
+            announcementUr = stringField(json, "announcementUr"),
+        )
+    }
+
+    private fun signedIntField(json: String, key: String): Int? =
+        Regex("\"$key\"\\s*:\\s*(-?\\d+)").find(json)?.groupValues?.get(1)?.toIntOrNull()
 }
+
+/**
+ * Fixes that need no new version: edit update.json on GitHub, and every phone
+ * picks the change up the next time it checks -- on opening the app, or in
+ * the daily background check.
+ *
+ * Only data can travel this way, never code. Every field is optional.
+ *
+ * @param hijriAdjust the national moon-sighting correction, in days. When it
+ *   changes it replaces each phone's own adjustment (the announcement is the
+ *   deliberate, informed one); people can still nudge it afterwards. Absent
+ *   means "leave everyone's setting alone".
+ * @param announcement a banner at the top of the app, e.g. "Eid ul Adha is on
+ *   Friday". Absent takes it down. Plain text, no double quotes.
+ * @param announcementUr the same banner for people using the app in Urdu.
+ *   Absent falls back to [announcement].
+ */
+data class RemoteConfig(
+    val hijriAdjust: Int?,
+    val announcement: String?,
+    val announcementUr: String?,
+)

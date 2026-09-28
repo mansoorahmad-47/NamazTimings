@@ -32,5 +32,10 @@ class BootReceiver : BroadcastReceiver() {
                     NamazWidget.refresh(context)
                 }
         }
+        // The new version is in: drop the downloaded APK and the
+        // "update ready" notification, which would now be a lie.
+        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            SelfUpdate.cleanUp(context)
+        }
     }
 }

@@ -206,7 +206,8 @@ Four permissions, and the app is useful even if you refuse three of them.
 | Notifications | Prayer time alerts and qaza warnings. Refuse it and everything still works, silently. |
 | Location *(coarse)* | Only to pick the nearest city from the list, and only if you tap "Use my location". Choose your city by hand instead and this is never asked. |
 | Alarms & reminders | So a prayer alert arrives at the prayer time rather than twenty minutes later. |
-| Internet | Only to check whether a newer version exists. Prayer times never need it. |
+| Internet | Only to check whether a newer version exists, and to download it. Prayer times never need it. |
+| Install apps | So the app can install its own updates. Android asks you once; it can only ever install this app. |
 
 **There is no account, no analytics company, no advertising, and no server
 holding your data.** Your city, your language, your streaks and every prayer
@@ -264,10 +265,19 @@ no way to tie it back to a person.
 
 ## Updates
 
-You do not have to check for them. The app asks once a day whether a newer
-version exists, and puts a notification on your phone when there is one.
-Tapping it downloads the new version; install it over the top and your streaks
-are kept.
+You do not have to check for them, and you do not have to visit any website.
+The app asks once a day whether a newer version exists, downloads it itself,
+and hands it to Android's installer. Your streaks and settings are kept.
+
+- **The first time**, Android asks you to allow Namaz Timings to install
+  updates ("Install unknown apps"). Switch it on once and it is remembered.
+- **Android 8 to 11:** each update is one tap on Android's **Install** button,
+  from the app or from the "tap to install" notification.
+- **Android 12 and newer:** after the first update, later ones usually install
+  by themselves in the background, with no prompt at all.
+
+If anything goes wrong, the app falls back to a "Download from website"
+button, which is how updates used to work.
 
 ---
 
@@ -345,12 +355,43 @@ app/src/main/java/io/frontierlabs/namaz/
   AlertReceiver.kt      an alarm fired: show it if it still matters, re-arm
   BootReceiver.kt       re-arm after reboot, clock change or reinstall
   UpdateReceiver.kt     the daily new-version check
+  SelfUpdate.kt         download and install updates in-app
 tests/Test.kt           272 tests, runnable on a plain JVM
 ```
 
 **Releasing a new version.** Bump `versionCode` and `versionName` in
 `app/build.gradle.kts`, push, attach the built `NamazTimings.apk` to a GitHub
 Release, then update `latestVersionCode`, `latestVersionName` and the tag in
-`downloadUrl` inside `update.json`. Every phone is notified within a day.
+`downloadUrl` inside `update.json`. Every phone downloads it within a day, or
+at once when the app is opened.
+
+**Changes that need no new version.** `update.json` can also carry settings
+that every phone picks up the next time it checks. Every field is optional:
+
+```json
+{
+  "latestVersionCode": 7,
+  "latestVersionName": "1.6",
+  "minSupportedVersionCode": 0,
+  "downloadUrl": "https://github.com/…/releases/download/v1.6/NamazTimings.apk",
+  "notes": "…",
+
+  "hijriAdjust": -1,
+  "announcement": "Eid ul Adha is on Friday, 27 June",
+  "announcementUr": "عید الاضحیٰ جمعہ، 27 جون کو ہے"
+}
+```
+
+- `hijriAdjust` (−2 to 2): the moon-sighting correction for everyone. When it
+  changes, it replaces each phone's own adjustment once; people can still
+  nudge it afterwards. Leave it out to leave everyone's setting alone. Adding
+  it at all overrides what people have set by hand, so only add it when you
+  mean to.
+- `announcement` / `announcementUr`: a banner at the top of the app, which
+  people can close. Remove the field to take the banner down. Plain text, no
+  double quotes (`"`).
+
+Only data can travel this way. A code fix still needs a new version, but that
+now installs itself as described under *Updates*.
 
 </details>

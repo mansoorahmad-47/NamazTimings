@@ -3,10 +3,22 @@
 
     <!-- Prayer times need no network: they are calculated on the device from
          the selected city's coordinates, and there is no location access.
-         INTERNET is here solely for the update check, which fetches one small
-         JSON file and fails open if it cannot. Remove this line and the app
-         still works completely; only the update prompt stops. -->
+         INTERNET is here solely for updates: one small JSON file (which also
+         carries the remote settings) and, when there is a new version, its
+         APK. Both fail open. Remove this line and the app still works
+         completely; only updates stop. -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- The app installing its own updates (see SelfUpdate.kt). Android still
+         asks the user once, in its own settings, before this does anything,
+         and only this app's own APK is ever installed: Android refuses an
+         update signed with a different key. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Android 14+: lets a self-update go in without a prompt, where Android
+         allows that at all (after the first update the app installed itself).
+         Granted at install; changes nothing on older versions. -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <!-- Android 13 and up: notifications are opt-in, asked for at runtime. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -68,6 +80,19 @@
         <receiver
             android:name=".UpdateReceiver"
             android:exported="false" />
+
+        <!-- Hears back from Android's installer. Not exported: the installer
+             reaches it through this app's own PendingIntent. -->
+        <receiver
+            android:name=".InstallResultReceiver"
+            android:exported="false" />
+
+        <!-- Downloads and installs an update in the background, once there is
+             a connection. Only the system's job scheduler may bind it. -->
+        <service
+            android:name=".UpdateJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <!-- The home-screen widget. Exported because the launcher, not this
              app, is what sends APPWIDGET_UPDATE and the resize callbacks. -->
