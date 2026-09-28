@@ -15,7 +15,8 @@ import kotlin.math.sqrt
  * by several degrees, so the flat-map answer is visibly wrong.
  *
  * The bearing is computed from the city you selected, so the app needs no
- * location permission -- only a compass to show which way you are facing.
+ * location permission -- only a compass to show which way you are facing, and
+ * on a phone without one, the sun (see [sunAt]).
  */
 object Qibla {
 
@@ -81,5 +82,52 @@ object Qibla {
         var diff = (qiblaBearing - headingTrue + 540.0) % 360.0 - 180.0
         if (abs(diff) < 0.0001) diff = 0.0
         return diff
+    }
+
+    // --- finding the Qibla without a compass -------------------------------
+    //
+    // Plenty of cheaper phones have no magnetometer at all. For them the sun
+    // is the compass: where it stands at this moment is known exactly from
+    // the date, the time and the city, with no sensor and no internet. Face
+    // the sun, turn by the difference, and you face the Qibla -- the method
+    // people used long before phones.
+
+    /** Where the sun is in the sky: [azimuth] from true north, [altitude] above the horizon. */
+    data class Sun(val azimuth: Double, val altitude: Double)
+
+    /**
+     * The sun's position at [epochMillis] (UTC) seen from [lat], [lon].
+     *
+     * Uses the same declination and equation of time as the prayer times, so
+     * it is good to well under a degree -- far finer than anyone can face.
+     */
+    fun sunAt(epochMillis: Long, lat: Double, lon: Double): Sun {
+        val jd = epochMillis / 86_400_000.0 + 2_440_587.5
+        val (decl, eqt) = PrayerTimes.sunPosition(jd)
+        val utHours = ((epochMillis % 86_400_000L + 86_400_000L) % 86_400_000L) / 3_600_000.0
+        val solarHours = utHours + lon / 15.0 + eqt
+        val h = (solarHours - 12.0) * 15.0 * DEG   // hour angle, 0 at solar noon
+
+        val phi = lat * DEG
+        val d = decl * DEG
+        val altitude = asin(sin(phi) * sin(d) + cos(phi) * cos(d) * cos(h)) / DEG
+        // Measured from south, westward positive; +180 turns it to from-north.
+        val fromSouth = atan2(sin(h), cos(h) * sin(phi) - kotlin.math.tan(d) * cos(phi)) / DEG
+        return Sun((fromSouth + 180.0 + 360.0) % 360.0, altitude)
+    }
+
+    fun sunAt(epochMillis: Long, city: City): Sun = sunAt(epochMillis, city.lat, city.lon)
+
+    /**
+     * Where on the horizon the sun sets on the day containing [epochMillis],
+     * in degrees from true north -- about 270 at the equinoxes, further north
+     * in summer and further south in winter. After Maghrib the glow in the
+     * west still marks the spot, so it is a reference after dark too.
+     */
+    fun sunsetAzimuth(epochMillis: Long, lat: Double): Double {
+        val jd = epochMillis / 86_400_000.0 + 2_440_587.5
+        val (decl, _) = PrayerTimes.sunPosition(jd)
+        val c = (sin(decl * DEG) / cos(lat * DEG)).coerceIn(-1.0, 1.0)
+        return 360.0 - kotlin.math.acos(c) / DEG
     }
 }

@@ -148,6 +148,13 @@ data class Str(
     val awayFromMetal: String,
     val figureEight: String,
     val declinationNote: String,
+    val useTheSun: String,
+    val faceTheSun: String,
+    val sunDialNote: String,
+    val sunIsDown: String,
+    val fromSunset: String,
+    val onlineFinder: String,
+    val onlineFinderHelp: String,
 
     // city + settings
     val chooseCity: String,
@@ -312,14 +319,24 @@ object Strings {
         turnRight = "Turn right",
         turnLeft = "Turn left",
         noCompass = "No compass on this phone",
-        noCompassHelp = "The bearing above is still correct. Face true north, " +
-            "then turn clockwise by that many degrees.",
+        noCompassHelp = "This phone has no compass sensor, so the dial cannot follow " +
+            "you. The bearing above is still correct — use the sun below to find it, " +
+            "or the online map.",
         accurateReading = "FOR AN ACCURATE READING",
         holdFlat = "Hold the phone flat, screen up.",
         awayFromMetal = "Move away from metal, speakers, laptops and magnets — " +
             "they pull the compass badly.",
         figureEight = "If it drifts, wave the phone in a figure of eight to recalibrate.",
         declinationNote = "Magnetic declination here is",
+        useTheSun = "FIND IT WITH THE SUN",
+        faceTheSun = "Stand facing the sun, then",
+        sunDialNote = "On the dial the sun is at the top. Don't look straight at " +
+            "it — stand with your shadow directly behind you. Works offline.",
+        sunIsDown = "The sun is down. Face where it set today, then",
+        fromSunset = "Sunset today was at",
+        onlineFinder = "Open Google Qibla Finder",
+        onlineFinderHelp = "Needs internet. Shows a line to Makkah on the map, " +
+            "which you can line up with nearby roads and buildings.",
 
         chooseCity = "Choose city",
         searchCity = "Search city or province",
@@ -477,14 +494,24 @@ object Strings {
         turnRight = "دائیں مڑیں",
         turnLeft = "بائیں مڑیں",
         noCompass = "اس فون میں قطب نما نہیں ہے",
-        noCompassHelp = "اوپر دی گئی سمت درست ہے۔ حقیقی شمال کی طرف رخ کریں، " +
-            "پھر اتنے درجے دائیں مڑیں۔",
+        noCompassHelp = "اس فون میں قطب نما کا سینسر نہیں، اس لیے ڈائل آپ کے ساتھ " +
+            "نہیں گھومتا۔ اوپر دی گئی سمت پھر بھی درست ہے — نیچے سورج کی مدد سے " +
+            "یا آن لائن نقشے سے اسے تلاش کریں۔",
         accurateReading = "درست پیمائش کے لیے",
         holdFlat = "فون کو سیدھا رکھیں، اسکرین اوپر کی جانب۔",
         awayFromMetal = "دھات، اسپیکر، لیپ ٹاپ اور مقناطیس سے دور ہو جائیں — " +
             "یہ قطب نما کو بہت متاثر کرتے ہیں۔",
         figureEight = "اگر سمت بدلتی رہے تو فون کو آٹھ کے ہندسے کی شکل میں گھمائیں۔",
         declinationNote = "یہاں مقناطیسی انحراف ہے",
+        useTheSun = "سورج کی مدد سے قبلہ",
+        faceTheSun = "سورج کی طرف رخ کر کے کھڑے ہوں، پھر",
+        sunDialNote = "ڈائل پر سورج اوپر کی جانب ہے۔ سورج کو براہِ راست نہ " +
+            "دیکھیں — اس طرح کھڑے ہوں کہ آپ کا سایہ بالکل پیچھے ہو۔ انٹرنیٹ کی ضرورت نہیں۔",
+        sunIsDown = "سورج غروب ہو چکا ہے۔ آج جہاں سورج غروب ہوا اس طرف رخ کریں، پھر",
+        fromSunset = "آج غروبِ آفتاب کی سمت",
+        onlineFinder = "گوگل قبلہ فائنڈر کھولیں",
+        onlineFinderHelp = "انٹرنیٹ درکار ہے۔ نقشے پر مکہ کی طرف لکیر دکھاتا ہے، " +
+            "جسے آپ قریبی سڑکوں اور عمارتوں سے ملا سکتے ہیں۔",
 
         chooseCity = "شہر منتخب کریں",
         searchCity = "شہر یا صوبہ تلاش کریں",
@@ -544,6 +571,8 @@ object Strings {
         s.qiblaFrom, s.fromTrueNorth, s.kmToMakkah, s.facingQibla, s.turnRight,
         s.turnLeft, s.noCompass, s.noCompassHelp, s.accurateReading, s.holdFlat,
         s.awayFromMetal, s.figureEight, s.declinationNote,
+        s.useTheSun, s.faceTheSun, s.sunDialNote, s.sunIsDown, s.fromSunset,
+        s.onlineFinder, s.onlineFinderHelp,
         s.chooseCity, s.searchCity, s.noCityMatched, s.calculation, s.language,
         s.asrMethod, s.asrNote, s.fajrIshaAngles, s.methodNote,
         s.developedBy, s.footerNote, s.followMasjid,

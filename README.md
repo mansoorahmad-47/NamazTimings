@@ -130,8 +130,12 @@ Follow the announcement and set it to match.
 
 **Qibla compass.** The true great-circle bearing to the Kaaba from your city,
 with a live needle. Magnetic declination is corrected for, so the needle points
-at true Qibla rather than a couple of degrees off. The bearing and distance
-still show on phones with no compass sensor.
+at true Qibla rather than a couple of degrees off. Phones without a gyroscope
+fall back to the plain accelerometer and magnetometer. On phones with no
+compass sensor at all, the app finds the Qibla from the sun instead — "face the
+sun, then turn right 42°", or after dark, from where the sun set — worked out
+offline from the time and your city, with a link to Google's online Qibla
+Finder as a last resort.
 
 **English and Urdu.** Switch in Settings. The whole interface flips to
 right-to-left in Urdu, including prayer names, month names, all 66 city names

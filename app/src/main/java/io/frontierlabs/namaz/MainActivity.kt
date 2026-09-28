@@ -50,7 +50,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.TextStyle
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import kotlinx.coroutines.launch
 import io.frontierlabs.namaz.core.*
 import java.time.LocalDate
@@ -237,7 +240,9 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
     // The month chart highlights the calendar day, which is the right unit
     // for a printed-style timetable. The Today tab works on the prayer day
     // instead and derives its own dates -- see TodayScreen.
-    val today = remember { LocalDate.now(PK) }
+    // Followed, not remembered once, so the header's Islamic date and the
+    // month chart's highlight move on at midnight if the app is left open.
+    val today = rememberTicker(60_000).toLocalDate()
     var hijriAdjust by remember { mutableIntStateOf(Prefs.hijriAdjust(prefs)) }
     val hijriToday = remember(today, hijriAdjust) {
         Hijri.fromGregorian(today.year, today.monthValue, today.dayOfMonth, hijriAdjust)
@@ -387,6 +392,49 @@ private fun PillTabs(selected: Int, labels: List<String>, onSelect: (Int) -> Uni
     }
 }
 
+/**
+ * The time in Pakistan, moving on by itself at every [stepMillis] boundary.
+ *
+ * Two things make a plain `delay` loop go stale. The delay counts uptime, and
+ * uptime stops while the phone sleeps with the screen off, so after unlocking
+ * the screen can sit on the time it showed before the lock. And a fixed
+ * delay drifts against the wall clock, so a minute display turns over up to
+ * one step late. So the loop sleeps to the next real boundary, and every
+ * return to the app reads the clock at once and restarts the loop.
+ */
+@Composable
+fun rememberTicker(stepMillis: Long): LocalDateTime {
+    var now by remember { mutableStateOf(LocalDateTime.now(PK)) }
+    var resumes by remember { mutableIntStateOf(0) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        now = LocalDateTime.now(PK)
+        resumes++
+    }
+    LaunchedEffect(stepMillis, resumes) {
+        while (true) {
+            // Pakistan is a whole number of hours from UTC, so epoch
+            // boundaries are local minute and second boundaries too.
+            val ms = System.currentTimeMillis()
+            kotlinx.coroutines.delay(stepMillis - ms % stepMillis + 20)
+            now = LocalDateTime.now(PK)
+        }
+    }
+    return now
+}
+
+/** "1h 05m 09s", or "5m 09s" under an hour. */
+private fun countdownText(totalSeconds: Int): String {
+    val t = totalSeconds.coerceAtLeast(0)
+    val h = t / 3600
+    val m = t % 3600 / 60
+    val s = t % 60
+    return if (h > 0) "${h}h ${"%02d".format(m)}m ${"%02d".format(s)}s"
+    else "${m}m ${"%02d".format(s)}s"
+}
+
+/** Digits of equal width, so a ticking countdown does not jiggle. */
+private val TABULAR = TextStyle(fontFeatureSettings = "tnum")
+
 @Composable
 fun TodayScreen(
     city: City,
@@ -396,16 +444,10 @@ fun TodayScreen(
 ) {
     val S = LocalStr.current
 
-    // Ticks so the countdown stays live without a service. The date is part
-    // of the tick, not remembered once: leave the app open overnight and it
-    // has to move on by itself.
-    var now by remember { mutableStateOf(LocalDateTime.now(PK)) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(20_000)
-            now = LocalDateTime.now(PK)
-        }
-    }
+    // Ticks every second so the countdown visibly runs. The date is part of
+    // the tick, not remembered once: leave the app open overnight and it has
+    // to move on by itself.
+    val now = rememberTicker(1_000)
 
     val calendarDate = now.toLocalDate()
     val nowMinutes = now.hour * 60 + now.minute
@@ -512,9 +554,11 @@ fun TodayScreen(
                                 color = if (urgent) RED else GOLD,
                             )
                             Spacer(Modifier.height(2.dp))
+                            // `left` counts whole minutes from the start of
+                            // this minute; the seconds already gone come off.
                             Text(
-                                if (left >= 60) "${left / 60}h ${left % 60}m"
-                                else "$left min",
+                                countdownText(left * 60 - now.second),
+                                style = LocalTextStyle.current.merge(TABULAR),
                                 fontSize = 20.sp, fontWeight = FontWeight.Bold,
                                 color = if (urgent) RED else GREEN,
                             )
@@ -575,7 +619,8 @@ fun TodayScreen(
                         fontWeight = FontWeight.Bold, color = GOLD)
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        "${S.beginsIn} ${minsToNext / 60}h ${minsToNext % 60}m",
+                        "${S.beginsIn} ${countdownText(minsToNext * 60 - now.second)}",
+                        style = LocalTextStyle.current.merge(TABULAR),
                         fontSize = 13.sp, color = MUTED,
                     )
                 }
@@ -1204,12 +1249,36 @@ fun HijriScreen(
                         if (shownMonth == 1) { shownMonth = 12; shownYear-- }
                         else shownMonth--
                     }) { Text("\u2039", fontSize = 20.sp, color = GOLD) }
-                    Text(
-                        "${Strings.hijriMonth(lang, shownMonth)} $shownYear",
+                    Column(
                         Modifier.weight(1f),
-                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center,
-                    )
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            "${Strings.hijriMonth(lang, shownMonth)} $shownYear",
+                            fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
+                        )
+                        // The small numbers in the grid are Gregorian days;
+                        // this says which Gregorian months they belong to.
+                        val span = remember(shownYear, shownMonth, adjust, lang) {
+                            val first = Hijri.toJdn(shownYear, shownMonth, 1) - adjust
+                            val last = first + Hijri.monthLength(shownYear, shownMonth) - 1
+                            val (y1, m1, _) = Hijri.jdnToGregorian(first)
+                            val (y2, m2, _) = Hijri.jdnToGregorian(last)
+                            when {
+                                y1 == y2 && m1 == m2 ->
+                                    "${Strings.monthName(lang, m1)} $y1"
+                                y1 == y2 ->
+                                    "${Strings.monthName(lang, m1)} – " +
+                                        "${Strings.monthName(lang, m2)} $y2"
+                                else ->
+                                    "${Strings.monthName(lang, m1)} $y1 – " +
+                                        "${Strings.monthName(lang, m2)} $y2"
+                            }
+                        }
+                        Text(span, fontSize = 11.sp, color = MUTED,
+                            textAlign = TextAlign.Center)
+                    }
                     TextButton(onClick = {
                         if (shownMonth == 12) { shownMonth = 1; shownYear++ }
                         else shownMonth++
@@ -1249,7 +1318,7 @@ fun HijriScreen(
                         for (c in 0..6) {
                             val n = w * 7 + c - lead + 1
                             if (n < 1 || n > length) {
-                                Spacer(Modifier.weight(1f).height(42.dp))
+                                Spacer(Modifier.weight(1f).height(HIJRI_CELL))
                             } else {
                                 val jdn = firstJdn + (n - 1)
                                 val (_, _, gd) = Hijri.jdnToGregorian(jdn)
@@ -1331,6 +1400,8 @@ private fun StepperButton(label: String, onClick: () -> Unit) {
     }
 }
 
+private val HIJRI_CELL = 50.dp
+
 /** One square of the Islamic month: the Hijri day large, the Gregorian small. */
 @Composable
 private fun HijriCell(
@@ -1340,20 +1411,26 @@ private fun HijriCell(
     isToday: Boolean,
     isEvent: Boolean,
 ) {
+    // Line heights are set explicitly. Material's default text style carries a
+    // 24sp line height, so two default lines need about 48dp and the Gregorian
+    // date was cut in half by the cell. heightIn rather than a fixed height
+    // lets the cell grow when the phone's font size is turned up.
     Box(
         modifier
-            .height(42.dp)
+            .heightIn(min = HIJRI_CELL)
             .padding(1.dp)
             .clip(R12)
             .background(if (isToday) Color(0x33D9B45B) else Color.Transparent)
             .border(
-                BorderStroke(1.dp, if (isToday) GOLD else Color.Transparent), R12),
+                BorderStroke(1.dp, if (isToday) GOLD else Color.Transparent), R12)
+            .padding(vertical = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 "$hijriDay",
-                fontSize = 14.sp,
+                fontSize = 15.sp,
+                lineHeight = 18.sp,
                 fontWeight = if (isToday || isEvent) FontWeight.Bold else FontWeight.Normal,
                 color = when {
                     isToday -> GOLD
@@ -1361,7 +1438,12 @@ private fun HijriCell(
                     else -> Color.Unspecified
                 },
             )
-            Text("$gregorianDay", fontSize = 8.5.sp, color = MUTED)
+            Text(
+                "$gregorianDay",
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
+                color = if (isToday) GOLD_DIM else MUTED,
+            )
         }
     }
 }
@@ -1381,21 +1463,44 @@ fun Footer() {
 }
 
 /**
- * Live compass heading in degrees from MAGNETIC north, or null when the phone
- * has no rotation-vector sensor. The listener is unregistered on dispose, so
- * the sensor does not keep running once this screen is left.
+ * The phone's compass, as far as it has one.
+ *
+ * [heading] is degrees from MAGNETIC north, null until the first reading.
+ * [available] is false when there is no magnetometer at all, or when one is
+ * listed but has sent nothing for a few seconds -- some cheap phones report
+ * a sensor that never delivers, and waiting on it forever helps nobody.
+ */
+data class Compass(val available: Boolean, val heading: Float?)
+
+/**
+ * Live compass readings. Listeners are unregistered on dispose, so the
+ * sensors do not keep running once this screen is left.
+ *
+ * Sensors are tried best first. The rotation vector is smooth but is fused
+ * with the gyroscope, which many budget phones lack -- and those phones
+ * usually still have an accelerometer and a magnetometer, which together
+ * give the same heading, only noisier. Checking for the rotation vector
+ * alone is what made the Qibla dial dead on such phones.
  */
 @Composable
-fun rememberMagneticHeading(): Float? {
+fun rememberCompass(): Compass {
     val context = LocalContext.current
+    val sm = remember { context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager }
+    val fused = remember {
+        sm?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+            ?: sm?.getDefaultSensor(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR)
+    }
+    val accel = remember { sm?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) }
+    val mag = remember { sm?.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD) }
+    val hasSensor = fused != null || (accel != null && mag != null)
+
     var heading by remember { mutableStateOf<Float?>(null) }
+    var silent by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
-        val sm = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
-        val sensor = sm?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-        var listener: SensorEventListener? = null
+        val listeners = mutableListOf<SensorEventListener>()
 
-        if (sm != null && sensor != null) {
+        if (sm != null && fused != null) {
             val l = object : SensorEventListener {
                 private val rotation = FloatArray(9)
                 private val orientation = FloatArray(3)
@@ -1407,13 +1512,50 @@ fun rememberMagneticHeading(): Float? {
                 }
                 override fun onAccuracyChanged(s: Sensor?, accuracy: Int) {}
             }
-            listener = l
-            sm.registerListener(l, sensor, SensorManager.SENSOR_DELAY_UI)
+            sm.registerListener(l, fused, SensorManager.SENSOR_DELAY_UI)
+            listeners += l
+        } else if (sm != null && accel != null && mag != null) {
+            val l = object : SensorEventListener {
+                private val gravity = FloatArray(3)
+                private val field = FloatArray(3)
+                private var haveGravity = false
+                private var haveField = false
+                private val rotation = FloatArray(9)
+                private val orientation = FloatArray(3)
+                override fun onSensorChanged(event: SensorEvent) {
+                    // Raw readings shake, so each vector is low-pass filtered.
+                    // Filtering the vectors rather than the final angle means
+                    // no special case where the heading wraps past north.
+                    val isAccel = event.sensor.type == Sensor.TYPE_ACCELEROMETER
+                    val v = if (isAccel) gravity else field
+                    val first = if (isAccel) !haveGravity else !haveField
+                    for (i in 0..2) {
+                        v[i] = if (first) event.values[i]
+                               else v[i] + 0.12f * (event.values[i] - v[i])
+                    }
+                    if (isAccel) haveGravity = true else haveField = true
+                    if (!haveGravity || !haveField) return
+                    if (!SensorManager.getRotationMatrix(rotation, null, gravity, field)) return
+                    SensorManager.getOrientation(rotation, orientation)
+                    val deg = Math.toDegrees(orientation[0].toDouble()).toFloat()
+                    heading = (deg + 360f) % 360f
+                }
+                override fun onAccuracyChanged(s: Sensor?, accuracy: Int) {}
+            }
+            sm.registerListener(l, accel, SensorManager.SENSOR_DELAY_UI)
+            sm.registerListener(l, mag, SensorManager.SENSOR_DELAY_UI)
+            listeners += l
         }
 
-        onDispose { listener?.let { sm?.unregisterListener(it) } }
+        onDispose { listeners.forEach { sm?.unregisterListener(it) } }
     }
-    return heading
+
+    LaunchedEffect(hasSensor) {
+        if (!hasSensor) return@LaunchedEffect
+        kotlinx.coroutines.delay(3_000)
+        if (heading == null) silent = true
+    }
+    return Compass(available = hasSensor && (heading != null || !silent), heading = heading)
 }
 
 @Composable
@@ -1431,10 +1573,21 @@ fun QiblaScreen(city: City, lang: Lang) {
         ).declination
     }
 
-    val magnetic = rememberMagneticHeading()
-    val trueHeading = magnetic?.let { (it + declination + 360f) % 360f }
+    val compass = rememberCompass()
+    val trueHeading = compass.heading?.let { (it + declination + 360f) % 360f }
     val turn = trueHeading?.let { Qibla.turnFrom(it.toDouble(), qibla) }
     val aligned = turn != null && kotlin.math.abs(turn) <= 5.0
+
+    // The sun: the compass for phones without one, and a cross-check for
+    // phones whose compass is being pulled off by something metal nearby.
+    val clock = rememberTicker(30_000)
+    val epoch = clock.atZone(PK).toInstant().toEpochMilli()
+    val sun = remember(epoch, city) { Qibla.sunAt(epoch, city) }
+    val sunUp = sun.altitude > 2.0
+    val sunset = remember(clock.toLocalDate(), city) { Qibla.sunsetAzimuth(epoch, city.lat) }
+    // With no compass and the sun up, the dial is drawn sun-up instead of
+    // north-up, so it matches what you see when you face the sun.
+    val sunDial = !compass.available && sunUp
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -1453,26 +1606,55 @@ fun QiblaScreen(city: City, lang: Lang) {
         // The dial turns with the phone; the needle stays pointing at the Qibla.
         Box(contentAlignment = Alignment.Center) {
             CompassDial(
-                headingTrue = trueHeading ?: 0f,
+                headingTrue = when {
+                    trueHeading != null -> trueHeading
+                    sunDial -> sun.azimuth.toFloat()
+                    else -> 0f
+                },
                 qiblaBearing = qibla.toFloat(),
-                live = trueHeading != null,
+                live = trueHeading != null || sunDial,
                 aligned = aligned,
+                sunAtTop = trueHeading == null && sunDial,
             )
         }
 
         Spacer(Modifier.height(18.dp))
 
         when {
-            trueHeading == null -> {
+            !compass.available -> {
+                val context = LocalContext.current
                 Panel(fill = Color(0x1AE8853F), stroke = Color(0x33E8853F)) {
                     Column(Modifier.padding(16.dp)) {
                         Text(S.noCompass, fontWeight = FontWeight.SemiBold,
                             color = AMBER, fontSize = 14.sp)
                         Spacer(Modifier.height(6.dp))
                         Text(S.noCompassHelp, fontSize = 13.sp)
+                        Spacer(Modifier.height(12.dp))
+                        SunGuide(qibla, sun, sunUp, sunset)
+                        Spacer(Modifier.height(14.dp))
+                        HorizontalDivider(color = FAINT)
+                        Spacer(Modifier.height(10.dp))
+                        // Google's finder draws the line on a satellite map,
+                        // so it works without a compass as long as there is
+                        // a connection.
+                        OutlinedButton(
+                            onClick = {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW,
+                                            Uri.parse("https://qiblafinder.withgoogle.com/"))
+                                    )
+                                }
+                            },
+                            border = BorderStroke(1.dp, GOLD_DIM),
+                        ) { Text(S.onlineFinder, color = GOLD) }
+                        Spacer(Modifier.height(4.dp))
+                        Text(S.onlineFinderHelp, fontSize = 11.sp, color = MUTED)
                     }
                 }
             }
+            // A compass exists but has not sent its first reading yet.
+            trueHeading == null -> {}
             aligned -> Box(
                 Modifier
                     .clip(CircleShape)
@@ -1490,21 +1672,33 @@ fun QiblaScreen(city: City, lang: Lang) {
                     fontWeight = FontWeight.SemiBold, color = GOLD)
         }
 
-        Spacer(Modifier.height(22.dp))
+        // Compass tips only mean something on a phone that has one; there the
+        // sun is offered too, as a check when the needle seems off.
+        if (compass.available) {
+            Spacer(Modifier.height(22.dp))
 
-        Panel(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text(S.accurateReading, fontSize = 9.sp, color = MUTED,
-                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                Spacer(Modifier.height(10.dp))
-                Text(S.holdFlat, fontSize = 13.sp)
-                Spacer(Modifier.height(5.dp))
-                Text(S.awayFromMetal, fontSize = 13.sp)
-                Spacer(Modifier.height(5.dp))
-                Text(S.figureEight, fontSize = 13.sp)
-                Spacer(Modifier.height(10.dp))
-                Text("${S.declinationNote} ${"%.1f".format(declination)}°.",
-                    fontSize = 11.sp, color = MUTED)
+            Panel(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(S.accurateReading, fontSize = 9.sp, color = MUTED,
+                        fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Spacer(Modifier.height(10.dp))
+                    Text(S.holdFlat, fontSize = 13.sp)
+                    Spacer(Modifier.height(5.dp))
+                    Text(S.awayFromMetal, fontSize = 13.sp)
+                    Spacer(Modifier.height(5.dp))
+                    Text(S.figureEight, fontSize = 13.sp)
+                    Spacer(Modifier.height(10.dp))
+                    Text("${S.declinationNote} ${"%.1f".format(declination)}°.",
+                        fontSize = 11.sp, color = MUTED)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            Panel(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    SunGuide(qibla, sun, sunUp, sunset)
+                }
             }
         }
 
@@ -1514,8 +1708,49 @@ fun QiblaScreen(city: City, lang: Lang) {
     }
 }
 
+/**
+ * Finding the Qibla from the sun: face it and turn, or after sunset, face
+ * where it went down and turn. Needs no sensor and no connection.
+ */
 @Composable
-fun CompassDial(headingTrue: Float, qiblaBearing: Float, live: Boolean, aligned: Boolean) {
+private fun SunGuide(qibla: Double, sun: Qibla.Sun, sunUp: Boolean, sunsetAzimuth: Double) {
+    val S = LocalStr.current
+    fun turnText(from: Double): String {
+        val t = Qibla.turnFrom(from, qibla)
+        return if (t >= 0) "${S.turnRight} ${Math.round(t)}°"
+        else "${S.turnLeft} ${Math.round(-t)}°"
+    }
+
+    Text(S.useTheSun, fontSize = 9.sp, color = MUTED,
+        fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+    Spacer(Modifier.height(8.dp))
+    if (sunUp) {
+        Text(S.faceTheSun, fontSize = 13.sp)
+        Text(turnText(sun.azimuth), fontSize = 17.sp,
+            fontWeight = FontWeight.SemiBold, color = GOLD)
+        Spacer(Modifier.height(6.dp))
+        Text(S.sunDialNote, fontSize = 11.sp, color = MUTED)
+    } else {
+        Text(S.sunIsDown, fontSize = 13.sp)
+        Text(turnText(sunsetAzimuth), fontSize = 17.sp,
+            fontWeight = FontWeight.SemiBold, color = GOLD)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "${S.fromSunset} ${Math.round(sunsetAzimuth)}°  " +
+                Qibla.compassPoint(sunsetAzimuth),
+            fontSize = 11.sp, color = MUTED,
+        )
+    }
+}
+
+@Composable
+fun CompassDial(
+    headingTrue: Float,
+    qiblaBearing: Float,
+    live: Boolean,
+    aligned: Boolean,
+    sunAtTop: Boolean = false,
+) {
     // Rotating the whole dial by -heading keeps north pointing at real north,
     // so the Qibla needle sits where you must physically turn to.
     val needle = if (live) qiblaBearing - headingTrue else qiblaBearing
@@ -1551,6 +1786,23 @@ fun CompassDial(headingTrue: Float, qiblaBearing: Float, live: Boolean, aligned:
             center = Offset(c.x + ((r - 28f) * kotlin.math.sin(na)).toFloat(),
                             c.y - ((r - 28f) * kotlin.math.cos(na)).toFloat()),
         )
+
+        // Sun-up mode: the top of the dial is the sun, so mark it there.
+        if (sunAtTop) {
+            val sc = Offset(c.x, c.y - (r - 52f))
+            drawCircle(color = AMBER, radius = 13f, center = sc)
+            for (i in 0 until 8) {
+                val a = Math.toRadians(i * 45.0)
+                val sx = kotlin.math.sin(a).toFloat()
+                val cy = kotlin.math.cos(a).toFloat()
+                drawLine(
+                    color = AMBER,
+                    start = Offset(sc.x + 18f * sx, sc.y - 18f * cy),
+                    end = Offset(sc.x + 26f * sx, sc.y - 26f * cy),
+                    strokeWidth = 3f, cap = StrokeCap.Round,
+                )
+            }
+        }
 
         // The Qibla needle.
         val qa = Math.toRadians(needle.toDouble())

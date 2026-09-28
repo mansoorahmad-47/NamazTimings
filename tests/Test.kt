@@ -269,6 +269,30 @@ fun main() {
     check("Islamabad bearing is further south than Karachi's", bIsb < bKhi,
         "$bIsb vs $bKhi")
 
+    println("\n-- the sun, for phones with no compass --")
+    // 22 September 2026, the equinox, scanned minute by minute in UTC.
+    val eqDay = java.time.LocalDate.of(2026, 9, 22).atStartOfDay(java.time.ZoneOffset.UTC)
+        .toInstant().toEpochMilli()
+    val khiDay = (0 until 1440).map { it to Qibla.sunAt(eqDay + it * 60_000L, khi) }
+    val noon = khiDay.maxByOrNull { it.second.altitude }!!.second
+    check("at its highest the sun is due south", abs(noon.azimuth - 180.0) < 2.0, noon)
+    check("equinox noon altitude is 90 minus latitude",
+        abs(noon.altitude - (90.0 - khi.lat)) < 1.0, noon)
+    val morning = khiDay.first { it.second.altitude > 10.0 }.second
+    check("the morning sun is in the east", morning.azimuth in 80.0..120.0, morning)
+    // Where sunAt says the sun touches the horizon, sunsetAzimuth must agree.
+    val setting = khiDay.filter { it.second.azimuth > 180.0 }
+        .first { it.second.altitude < 0.0 }.second
+    val setAz = Qibla.sunsetAzimuth(eqDay, khi.lat)
+    check("equinox sunset is due west", abs(setAz - 270.0) < 1.5, setAz)
+    check("sunset azimuth matches the sun's own position at sunset",
+        abs(setAz - setting.azimuth) < 1.5, "$setAz vs ${setting.azimuth}")
+    val june = java.time.LocalDate.of(2026, 6, 21).atStartOfDay(java.time.ZoneOffset.UTC)
+        .toInstant().toEpochMilli()
+    val juneSet = Qibla.sunsetAzimuth(june, isb.lat)
+    check("midsummer sunset in Islamabad is well north of west (~299)",
+        juneSet in 296.0..301.0, juneSet)
+
     println("\n-- distance to the Kaaba --")
     val dKhi = Qibla.distanceKm(khi)
     val dIsb = Qibla.distanceKm(isb)
