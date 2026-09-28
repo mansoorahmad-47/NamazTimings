@@ -1,7 +1,7 @@
 {
-  "latestVersionCode": 7,
-  "latestVersionName": "1.6",
+  "latestVersionCode": 8,
+  "latestVersionName": "1.7",
   "minSupportedVersionCode": 0,
-  "downloadUrl": "https://github.com/mansoorahmad-47/NamazTimings/releases/download/v1.6/NamazTimings.apk",
-  "notes": "Qibla through internet for mobiles having no compass, timer converted to real time"
+  "downloadUrl": "https://github.com/mansoorahmad-47/NamazTimings/releases/download/v1.7/NamazTimings.apk",
+  "notes": "Qibla through internet for mobiles having no compass, timer converted to real time, and Testing Auto Update option"
 }
