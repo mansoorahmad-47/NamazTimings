@@ -2281,7 +2281,7 @@ fun UpdateDialog(decision: UpdateDecision, onDismiss: () -> Unit) {
  * after picking an account is exactly what a setup mistake looks like.
  */
 @Composable
-fun rememberDriveSignIn(onToken: (String) -> Unit, onFail: (Int?) -> Unit): () -> Unit {
+fun rememberDriveSignIn(onToken: (String) -> Unit, onFail: (Int?, String?) -> Unit): () -> Unit {
     val context = LocalContext.current
     fun codeOf(e: Throwable) =
         (e as? com.google.android.gms.common.api.ApiException)?.statusCode
@@ -2293,16 +2293,16 @@ fun rememberDriveSignIn(onToken: (String) -> Unit, onFail: (Int?) -> Unit): () -
         if (data == null) {
             // Closed with nothing to read: either the user backed out or
             // Google gave up. Say so either way; it costs one line of text.
-            onFail(null)
+            onFail(null, null)
             return@rememberLauncherForActivityResult
         }
         runCatching {
             Identity.getAuthorizationClient(context).getAuthorizationResultFromIntent(data)
         }.onSuccess { r ->
-            r.accessToken?.let(onToken) ?: onFail(null)
+            r.accessToken?.let(onToken) ?: onFail(null, null)
         }.onFailure { e ->
             val code = codeOf(e)
-            if (code != com.google.android.gms.common.api.CommonStatusCodes.CANCELED) onFail(code)
+            if (code != com.google.android.gms.common.api.CommonStatusCodes.CANCELED) onFail(code, e.message)
         }
     }
     return {
@@ -2313,13 +2313,13 @@ fun rememberDriveSignIn(onToken: (String) -> Unit, onFail: (Int?) -> Unit): () -
                     if (r.hasResolution() && pi != null) {
                         runCatching {
                             launcher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
-                        }.onFailure { onFail(null) }
+                        }.onFailure { onFail(null, null) }
                     } else {
-                        r.accessToken?.let(onToken) ?: onFail(null)
+                        r.accessToken?.let(onToken) ?: onFail(null, null)
                     }
                 }
-                .addOnFailureListener { e -> onFail(codeOf(e)) }
-        }.onFailure { e -> onFail(codeOf(e)) }
+                .addOnFailureListener { e -> onFail(codeOf(e), e.message) }
+        }.onFailure { e -> onFail(codeOf(e), e.message) }
     }
 }
 
@@ -2390,7 +2390,7 @@ fun BackupDialog(
                 afterSync(outcome)
             }
         },
-        onFail = { code ->
+        onFail = { code, detail ->
             busy = false
             messageIsError = true
             message = when (code) {
@@ -2398,7 +2398,10 @@ fun BackupDialog(
                 com.google.android.gms.common.api.CommonStatusCodes.NETWORK_ERROR -> S.signInFailed
                 com.google.android.gms.common.api.CommonStatusCodes.DEVELOPER_ERROR ->
                     "${S.signInSetup} (${S.errorCode} 10)"
-                else -> "${S.signInError} (${S.errorCode} $code)"
+                // Google's own text says what "error 8" actually means,
+                // which the bare code does not.
+                else -> "${S.signInError} (${S.errorCode} $code)" +
+                    (detail?.let { "\n$it" } ?: "")
             }
         },
     )
