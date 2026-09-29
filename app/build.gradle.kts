@@ -14,8 +14,8 @@ android {
         applicationId = "io.frontierlabs.namaz"
         minSdk = 26          // java.time needs 26; also covers ~all live phones
         targetSdk = 36
-        versionCode = 8
-        versionName = "1.7"
+        versionCode = 9
+        versionName = "1.8"
     }
 
     signingConfigs {
