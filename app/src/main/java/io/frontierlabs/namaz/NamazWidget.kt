@@ -379,6 +379,9 @@ class NamazWidget : AppWidgetProvider() {
             val done = Prefs.readDone(prefs, day.year, day.monthValue, day.dayOfMonth)
             val next = if (done.contains(name)) done - name else done + name
             Prefs.writeDone(prefs, day.year, day.monthValue, day.dayOfMonth, next)
+            // A tick on the widget never opens the app, so it schedules
+            // the backup itself. No-op unless backup is on.
+            runCatching { BackupJob.scheduleIfNeeded(context) }
         }
 
         // --- staying current ------------------------------------------------

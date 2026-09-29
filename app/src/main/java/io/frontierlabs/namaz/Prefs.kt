@@ -36,8 +36,77 @@ object Prefs {
         prefs.getStringSet(dateKey(y, m, d), null)?.toSet() ?: emptySet()
 
     fun writeDone(prefs: SharedPreferences, y: Int, m: Int, d: Int, value: Set<String>) {
-        prefs.edit().putStringSet(dateKey(y, m, d), value).apply()
+        val day = "%04d-%02d-%02d".format(y, m, d)
+        // Every change is remembered as "not backed up yet", whether or not
+        // backup is on: switching it on later then knows which days are the
+        // phone's newest word. See core.Backup.merge.
+        val dirty = (prefs.getStringSet("backupDirty", null) ?: emptySet()) + day
+        prefs.edit()
+            .putStringSet(dateKey(y, m, d), value)
+            .putStringSet("backupDirty", dirty)
+            .apply()
     }
+
+    /** Every day with a record, as "yyyy-mm-dd" to the prayers marked. */
+    fun allDone(prefs: SharedPreferences): Map<String, Set<String>> =
+        prefs.all.entries
+            .filter { it.key.startsWith("done:") }
+            .associate { (k, v) ->
+                k.removePrefix("done:") to
+                    ((v as? Set<*>)?.filterIsInstance<String>()?.toSet() ?: emptySet())
+            }
+
+    /** Write a merged backup back. Does not mark anything dirty. */
+    fun replaceAllDone(prefs: SharedPreferences, days: Map<String, Set<String>>) {
+        val e = prefs.edit()
+        days.forEach { (day, set) -> e.putStringSet("done:$day", set) }
+        e.apply()
+    }
+
+    // --- Google Drive backup (see DriveBackup.kt) ----------------------------
+
+    fun backupDirty(prefs: SharedPreferences): Set<String> =
+        prefs.getStringSet("backupDirty", null)?.toSet() ?: emptySet()
+
+    /** Forget only the days that were uploaded; a tick made mid-upload stays dirty. */
+    fun clearBackupDirty(prefs: SharedPreferences, uploaded: Set<String>) {
+        prefs.edit().putStringSet("backupDirty", backupDirty(prefs) - uploaded).apply()
+    }
+
+    fun driveBackupOn(prefs: SharedPreferences) = prefs.getBoolean("driveBackup", false)
+
+    fun setDriveBackupOn(prefs: SharedPreferences, on: Boolean) =
+        prefs.edit().putBoolean("driveBackup", on).apply()
+
+    /** Epoch millis of the last good backup, 0 for never. */
+    fun lastBackup(prefs: SharedPreferences) = prefs.getLong("lastBackup", 0L)
+
+    fun setLastBackup(prefs: SharedPreferences, at: Long) =
+        prefs.edit().putLong("lastBackup", at).putBoolean("backupNeedsSignIn", false).apply()
+
+    fun backupAccount(prefs: SharedPreferences): String? = prefs.getString("backupAccount", null)
+
+    fun setBackupAccount(prefs: SharedPreferences, email: String?) =
+        prefs.edit().putString("backupAccount", email).apply()
+
+    /**
+     * Google wants the user to sign in again (they removed the app's access,
+     * or changed their password). A background job cannot ask, so it says so
+     * here and Settings offers the button.
+     */
+    fun backupNeedsSignIn(prefs: SharedPreferences) = prefs.getBoolean("backupNeedsSignIn", false)
+
+    fun setBackupNeedsSignIn(prefs: SharedPreferences, needs: Boolean) =
+        prefs.edit().putBoolean("backupNeedsSignIn", needs).apply()
+
+    /**
+     * The "keep your streaks safe" card. Snoozed rather than gone for good
+     * when someone taps Not now; "No thanks" in the dialog is for good.
+     */
+    fun backupNudgeHiddenUntil(prefs: SharedPreferences) = prefs.getLong("backupNudgeUntil", 0L)
+
+    fun hideBackupNudge(prefs: SharedPreferences, untilMillis: Long) =
+        prefs.edit().putLong("backupNudgeUntil", untilMillis).apply()
 
     // --- first run ---------------------------------------------------------
 

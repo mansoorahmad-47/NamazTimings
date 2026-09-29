@@ -15,7 +15,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import com.google.android.gms.auth.api.identity.Identity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -82,6 +84,9 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         SelfUpdate.appVisible = false
+        // Leaving the app is the natural moment to back up whatever was
+        // ticked -- one upload, not one per tap. No-op unless it is on.
+        runCatching { BackupJob.scheduleIfNeeded(this) }
     }
 }
 
@@ -263,6 +268,19 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
     val hijriToday = remember(today, hijriAdjust) {
         Hijri.fromGregorian(today.year, today.monthValue, today.dayOfMonth, hijriAdjust)
     }
+
+    // Bumped when a backup restore has rewritten marked prayers, so the
+    // Today screen reads them again instead of showing what it had.
+    var dataVersion by remember { mutableIntStateOf(0) }
+    var showBackup by remember { mutableStateOf(false) }
+    var nudgeTick by remember { mutableIntStateOf(0) }
+    val showNudge = remember(dataVersion, nudgeTick, tab, needsSetup) {
+        !needsSetup && tab == 0 &&
+            !Prefs.driveBackupOn(prefs) &&
+            System.currentTimeMillis() >= Prefs.backupNudgeHiddenUntil(prefs) &&
+            DriveBackup.androidBackupOn(context) != true &&
+            Backup.markedDays(Prefs.allDone(prefs)) >= 3
+    }
     var shownMonth by remember { mutableIntStateOf(today.monthValue) }
     var shownYear by remember { mutableIntStateOf(today.year) }
 
@@ -343,8 +361,20 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
                 }
             }
 
+            if (showNudge) {
+                BackupNudge(
+                    onOpen = { showBackup = true },
+                    onNotNow = {
+                        // A month, not forever: "not now" is not "never".
+                        Prefs.hideBackupNudge(
+                            prefs, System.currentTimeMillis() + 30L * 86_400_000L)
+                        nudgeTick++
+                    },
+                )
+            }
+
             when (tab) {
-                0 -> TodayScreen(city, settings, prefs, lang)
+                0 -> TodayScreen(city, settings, prefs, lang, dataVersion)
                 1 -> MonthScreen(
                     city, settings, shownYear, shownMonth, lang,
                     isCurrentMonth = shownMonth == today.monthValue && shownYear == today.year,
@@ -384,6 +414,20 @@ fun AppRoot(prefs: android.content.SharedPreferences) {
                 settings, lang, prefs,
                 onSave = { st, l -> saveSettings(st); saveLang(l); showSettings = false },
                 onDismiss = { showSettings = false },
+                onOpenBackup = { showSettings = false; showBackup = true },
+            )
+        }
+        if (showBackup) {
+            BackupDialog(
+                prefs = prefs,
+                onRestored = { dataVersion++ },
+                // "No thanks" only when it was the card that asked.
+                onNever = if (showNudge) ({
+                    Prefs.hideBackupNudge(prefs, Long.MAX_VALUE)
+                    showBackup = false
+                    nudgeTick++
+                }) else null,
+                onDismiss = { showBackup = false; nudgeTick++ },
             )
         }
         update?.let { UpdateDialog(it) { update = null } }
@@ -478,6 +522,7 @@ fun TodayScreen(
     settings: Settings,
     prefs: android.content.SharedPreferences,
     lang: Lang,
+    dataVersion: Int = 0,
 ) {
     val S = LocalStr.current
 
@@ -507,7 +552,7 @@ fun TodayScreen(
         PrayerTimes.forDate(day.year, day.monthValue, day.dayOfMonth, city, settings)
     }
 
-    var done by remember(day) {
+    var done by remember(day, dataVersion) {
         mutableStateOf(Prefs.readDone(prefs, day.year, day.monthValue, day.dayOfMonth))
     }
     val context = LocalContext.current
@@ -2222,6 +2267,254 @@ fun UpdateDialog(decision: UpdateDecision, onDismiss: () -> Unit) {
     )
 }
 
+// --- streak backup -----------------------------------------------------------
+
+/**
+ * Start Google's sign-in for Drive backup. Returns the function to call from
+ * a button. [onToken] gets an access token; [onFail] a real failure. Backing
+ * out of Google's screen is neither -- it is just the user saying no.
+ */
+@Composable
+fun rememberDriveSignIn(onToken: (String) -> Unit, onFail: () -> Unit): () -> Unit {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { res ->
+        if (res.resultCode != android.app.Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val data = res.data
+        val token = if (data == null) null else runCatching {
+            Identity.getAuthorizationClient(context)
+                .getAuthorizationResultFromIntent(data).accessToken
+        }.getOrNull()
+        if (token != null) onToken(token) else onFail()
+    }
+    return {
+        runCatching {
+            Identity.getAuthorizationClient(context).authorize(DriveBackup.request())
+                .addOnSuccessListener { r ->
+                    val pi = r.pendingIntent
+                    if (r.hasResolution() && pi != null) {
+                        runCatching {
+                            launcher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+                        }.onFailure { onFail() }
+                    } else {
+                        r.accessToken?.let(onToken) ?: onFail()
+                    }
+                }
+                .addOnFailureListener { onFail() }
+        }.onFailure { onFail() }
+    }
+}
+
+/** "29 Sep, 4:05 PM" in Pakistan time. */
+private fun backupTime(millis: Long): String =
+    java.time.Instant.ofEpochMilli(millis).atZone(PK)
+        .format(java.time.format.DateTimeFormatter.ofPattern("d MMM, h:mm a", java.util.Locale.ENGLISH))
+
+/**
+ * Everything about keeping streaks safe, in one place: what Android's own
+ * backup is doing, and the optional Drive backup with its controls.
+ *
+ * Nothing here happens without a tap. The dialog explains, and the person
+ * decides -- including deciding never to be asked again ([onNever]).
+ *
+ * [onRestored] is called after a sync that changed days on this phone, so the
+ * screens behind can re-read them.
+ */
+@Composable
+fun BackupDialog(
+    prefs: android.content.SharedPreferences,
+    onRestored: () -> Unit,
+    onNever: (() -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    val S = LocalStr.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    val androidBackup = remember { DriveBackup.androidBackupOn(context) }
+    val driveAvailable = remember { DriveBackup.available(context) }
+    var on by remember { mutableStateOf(Prefs.driveBackupOn(prefs)) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var last by remember { mutableLongStateOf(Prefs.lastBackup(prefs)) }
+    var account by remember { mutableStateOf(Prefs.backupAccount(prefs)) }
+    var needsSignIn by remember { mutableStateOf(Prefs.backupNeedsSignIn(prefs)) }
+
+    fun afterSync(outcome: DriveBackup.Outcome) {
+        busy = false
+        if (outcome.ok) {
+            on = true
+            needsSignIn = false
+            Prefs.setDriveBackupOn(prefs, true)
+            last = Prefs.lastBackup(prefs)
+            account = Prefs.backupAccount(prefs)
+            message = if (outcome.restoredDays > 0)
+                "${outcome.restoredDays} ${S.restoredDays}" else null
+            if (outcome.restoredDays > 0) onRestored()
+        } else {
+            message = S.signInFailed
+        }
+    }
+
+    val signIn = rememberDriveSignIn(
+        onToken = { token ->
+            busy = true
+            message = null
+            scope.launch {
+                val outcome = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    DriveBackup.sync(context, token)
+                }
+                afterSync(outcome)
+            }
+        },
+        onFail = { busy = false; message = S.signInFailed },
+    )
+
+    fun turnOff(delete: Boolean) {
+        busy = true
+        scope.launch {
+            if (delete) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    DriveBackup.silentToken(context)?.let { DriveBackup.deleteBackup(it) }
+                }
+            }
+            Prefs.setDriveBackupOn(prefs, false)
+            Prefs.setBackupAccount(prefs, null)
+            on = false
+            busy = false
+            message = null
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text(S.close, color = GOLD) } },
+        dismissButton = {
+            if (onNever != null && !on) {
+                TextButton(onClick = onNever) { Text(S.noThanks, color = MUTED) }
+            }
+        },
+        title = { Text(S.backupTitle, fontSize = 17.sp) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(S.backupIntro, fontSize = 13.sp)
+
+                // --- Android's own backup --------------------------------
+                Spacer(Modifier.height(16.dp))
+                SectionLabel(S.androidBackupTitle)
+                Text(
+                    when (androidBackup) {
+                        true -> "✓  ${S.androidBackupOn}"
+                        false -> S.androidBackupOff
+                        null -> S.androidBackupUnknown
+                    },
+                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    color = when (androidBackup) { true -> GREEN; false -> AMBER; null -> MUTED },
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(S.androidBackupHelp, fontSize = 12.sp, color = MUTED)
+                if (androidBackup != true) {
+                    TextButton(onClick = {
+                        runCatching {
+                            context.startActivity(
+                                Intent(android.provider.Settings.ACTION_SETTINGS)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }
+                    }, contentPadding = PaddingValues(0.dp)) {
+                        Text(S.openSettings, color = GOLD, fontSize = 13.sp)
+                    }
+                }
+
+                // --- Google Drive ----------------------------------------
+                Spacer(Modifier.height(14.dp))
+                SectionLabel(S.driveTitle)
+                when {
+                    busy -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            Modifier.size(16.dp), strokeWidth = 2.dp, color = GOLD)
+                        Spacer(Modifier.width(10.dp))
+                        Text(S.backingUp, fontSize = 13.sp)
+                    }
+
+                    on -> {
+                        Text(
+                            "✓  ${S.backedUpTo} ${account ?: "Google Drive"}",
+                            fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = GREEN,
+                        )
+                        Text(
+                            "${S.lastBackup}: ${if (last > 0) backupTime(last) else "—"}",
+                            fontSize = 12.sp, color = MUTED,
+                        )
+                        if (needsSignIn) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(S.signInAgain, fontSize = 12.sp, color = AMBER)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedButton(
+                            onClick = signIn,
+                            border = BorderStroke(1.dp, GOLD_DIM),
+                        ) { Text(if (needsSignIn) S.signInGoogle else S.backupNow, color = GOLD) }
+                        TextButton(onClick = { turnOff(delete = false) },
+                            contentPadding = PaddingValues(0.dp)) {
+                            Text(S.turnOff, color = MUTED, fontSize = 13.sp)
+                        }
+                        TextButton(onClick = { turnOff(delete = true) },
+                            contentPadding = PaddingValues(0.dp)) {
+                            Text(S.turnOffDelete, color = RED, fontSize = 13.sp)
+                        }
+                    }
+
+                    !driveAvailable -> Text(S.driveUnavailable, fontSize = 12.sp, color = AMBER)
+
+                    else -> {
+                        Text(S.driveHelp, fontSize = 12.sp, color = MUTED)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = signIn,
+                            border = BorderStroke(1.dp, GOLD_DIM),
+                        ) { Text(S.signInGoogle, color = GOLD) }
+                    }
+                }
+                message?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, fontSize = 12.sp,
+                        color = if (it == S.signInFailed) AMBER else GREEN)
+                }
+            }
+        },
+    )
+}
+
+/**
+ * The one-time "keep your streaks safe" card. Shown only when Android's own
+ * backup is off or cannot be confirmed, Drive backup is not on, and there is
+ * something worth keeping -- a few days of marked prayers -- so a brand-new
+ * user is not greeted with it.
+ */
+@Composable
+private fun BackupNudge(onOpen: () -> Unit, onNotNow: () -> Unit) {
+    val S = LocalStr.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(top = 10.dp)
+            .clip(R16)
+            .background(CARD)
+            .border(BorderStroke(1.dp, STROKE), R16)
+            .padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(S.nudgeText, Modifier.weight(1f), fontSize = 12.5.sp)
+        TextButton(onClick = onNotNow) { Text(S.notNow, color = MUTED, fontSize = 12.sp) }
+        TextButton(onClick = onOpen) {
+            Text(S.nudgeAction, color = GOLD, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
 
 /**
  * The first launch, and only the first.
@@ -2462,6 +2755,7 @@ fun SettingsDialog(
     prefs: android.content.SharedPreferences,
     onSave: (Settings, Lang) -> Unit,
     onDismiss: () -> Unit,
+    onOpenBackup: () -> Unit,
 ) {
     val S = LocalStr.current
     val context = LocalContext.current
@@ -2501,6 +2795,25 @@ fun SettingsDialog(
                         RadioButton(selected = lang == l, onClick = { lang = l })
                         Text(l.label, fontSize = 14.sp)
                     }
+                }
+
+                Spacer(Modifier.height(14.dp))
+                SectionLabel(S.backupSection)
+                Row(
+                    Modifier.fillMaxWidth().clickable { onOpenBackup() }
+                        .padding(vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        val on = Prefs.driveBackupOn(prefs)
+                        Text(
+                            if (on) "✓  ${S.backedUpTo} Google Drive" else S.backupOff,
+                            fontSize = 14.sp,
+                            color = if (on) GREEN else Color.Unspecified,
+                        )
+                        Text(S.backupTitle, fontSize = 10.5.sp, color = MUTED)
+                    }
+                    Text("›", fontSize = 20.sp, color = GOLD)
                 }
 
                 Spacer(Modifier.height(14.dp))

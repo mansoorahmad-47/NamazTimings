@@ -80,10 +80,10 @@ jobs:
           APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
           {
             echo '## Signature'
-            echo 'This must be the same on every build, or updates will not install.'
+            echo 'This must be the same on every build, or updates will not install. The SHA-1 is what Google Cloud asks for when setting up Drive backup.'
             echo '```'
             "$APKSIGNER" verify --print-certs dist/NamazTimings.apk \
-              | grep -i "SHA-256 digest" || echo "(could not read certificate)"
+              | grep -iE "SHA-256 digest|SHA-1 digest" || echo "(could not read certificate)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

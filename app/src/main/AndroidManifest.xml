@@ -94,6 +94,13 @@
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
 
+        <!-- The optional Google Drive streak backup, run when there is a
+             connection. Does nothing unless the user has switched it on. -->
+        <service
+            android:name=".BackupJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
         <!-- The home-screen widget. Exported because the launcher, not this
              app, is what sends APPWIDGET_UPDATE and the resize callbacks. -->
         <receiver

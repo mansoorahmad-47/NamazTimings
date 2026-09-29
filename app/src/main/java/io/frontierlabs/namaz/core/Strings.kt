@@ -187,6 +187,35 @@ data class Str(
     val allowInstallsHelp: String,
     val updateFailed: String,
     val downloadInBrowser: String,
+
+    // streak backup
+    val backupSection: String,
+    val backupTitle: String,
+    val backupIntro: String,
+    val backupOff: String,
+    val androidBackupTitle: String,
+    val androidBackupOn: String,
+    val androidBackupOff: String,
+    val androidBackupUnknown: String,
+    val androidBackupHelp: String,
+    val openSettings: String,
+    val driveTitle: String,
+    val driveHelp: String,
+    val driveUnavailable: String,
+    val signInGoogle: String,
+    val signInFailed: String,
+    val signInAgain: String,
+    val backingUp: String,
+    val backedUpTo: String,
+    val lastBackup: String,
+    val restoredDays: String,
+    val backupNow: String,
+    val turnOff: String,
+    val turnOffDelete: String,
+    val noThanks: String,
+    val notNow: String,
+    val nudgeText: String,
+    val nudgeAction: String,
 )
 
 object Strings {
@@ -379,6 +408,42 @@ object Strings {
         updateFailed = "The update could not be installed. You can download it " +
             "from the website instead.",
         downloadInBrowser = "Download from website",
+
+        backupSection = "STREAK BACKUP",
+        backupTitle = "Keep your streaks safe",
+        backupIntro = "Your streaks are stored only on this phone. If the app is " +
+            "uninstalled or the phone is lost, they are gone. Both ways below are " +
+            "free, and both are entirely your choice.",
+        backupOff = "Not backed up",
+        androidBackupTitle = "ANDROID'S GOOGLE BACKUP",
+        androidBackupOn = "On for this phone",
+        androidBackupOff = "Off on this phone",
+        androidBackupUnknown = "This phone doesn't let apps check",
+        androidBackupHelp = "Backs up this app along with the rest of your phone, " +
+            "and brings it back when you set up a new phone. You'll find it in " +
+            "Settings → Google → Backup (on some phones: System → Backup).",
+        openSettings = "Open phone settings",
+        driveTitle = "BACK UP TO YOUR GOOGLE DRIVE",
+        driveHelp = "Sign in with Google and your streaks are saved to a hidden " +
+            "folder in your own Drive whenever they change. Only this app can open " +
+            "it — not other apps, and not the developer. After reinstalling, sign " +
+            "in again and they come back. You can turn it off any time.",
+        driveUnavailable = "Google sign-in isn't available on this phone. Use " +
+            "Android's backup above instead.",
+        signInGoogle = "Sign in with Google",
+        signInFailed = "Couldn't reach Google. Check your connection and try again.",
+        signInAgain = "Google needs you to sign in again to keep backing up.",
+        backingUp = "Backing up…",
+        backedUpTo = "Backed up to",
+        lastBackup = "Last backup",
+        restoredDays = "days restored from your backup",
+        backupNow = "Back up now",
+        turnOff = "Turn off (keep the backup)",
+        turnOffDelete = "Turn off and delete the backup",
+        noThanks = "No thanks",
+        notNow = "Not now",
+        nudgeText = "Your streaks are only on this phone.",
+        nudgeAction = "Keep them safe",
     )
 
     val UR = Str(
@@ -564,6 +629,42 @@ object Strings {
         updateFailed = "اپ ڈیٹ انسٹال نہیں ہو سکی۔ آپ اسے ویب سائٹ سے ڈاؤن لوڈ " +
             "کر سکتے ہیں۔",
         downloadInBrowser = "ویب سائٹ سے ڈاؤن لوڈ کریں",
+
+        backupSection = "اسٹریک کا بیک اپ",
+        backupTitle = "اپنی اسٹریک محفوظ رکھیں",
+        backupIntro = "آپ کی اسٹریک صرف اس فون میں محفوظ ہے۔ اگر ایپ ان انسٹال ہو " +
+            "جائے یا فون گم ہو جائے تو یہ ختم ہو جائے گی۔ نیچے دیے گئے دونوں طریقے " +
+            "مفت ہیں، اور دونوں مکمل طور پر آپ کی مرضی پر ہیں۔",
+        backupOff = "بیک اپ نہیں ہو رہا",
+        androidBackupTitle = "اینڈرائیڈ کا گوگل بیک اپ",
+        androidBackupOn = "اس فون پر آن ہے",
+        androidBackupOff = "اس فون پر بند ہے",
+        androidBackupUnknown = "یہ فون ایپس کو معلوم کرنے نہیں دیتا",
+        androidBackupHelp = "یہ باقی فون کے ساتھ اس ایپ کا بھی بیک اپ لیتا ہے، اور " +
+            "نیا فون سیٹ کرتے وقت اسے واپس لے آتا ہے۔ یہ سیٹنگز ← گوگل ← بیک اپ میں " +
+            "ملے گا (کچھ فونز میں: سسٹم ← بیک اپ)۔",
+        openSettings = "فون کی سیٹنگز کھولیں",
+        driveTitle = "اپنی گوگل ڈرائیو میں بیک اپ",
+        driveHelp = "گوگل سے سائن ان کریں، اور جب بھی آپ کی اسٹریک بدلے گی وہ آپ کی " +
+            "اپنی ڈرائیو کے ایک پوشیدہ فولڈر میں محفوظ ہو جائے گی۔ اسے صرف یہ ایپ " +
+            "کھول سکتی ہے — نہ دوسری ایپس، نہ ڈویلپر۔ دوبارہ انسٹال کرنے کے بعد " +
+            "سائن ان کریں اور سب واپس آ جائے گا۔ آپ اسے کسی بھی وقت بند کر سکتے ہیں۔",
+        driveUnavailable = "اس فون پر گوگل سائن ان دستیاب نہیں۔ اس کی بجائے اوپر " +
+            "والا اینڈرائیڈ بیک اپ استعمال کریں۔",
+        signInGoogle = "گوگل سے سائن ان کریں",
+        signInFailed = "گوگل سے رابطہ نہیں ہو سکا۔ انٹرنیٹ چیک کر کے دوبارہ کوشش کریں۔",
+        signInAgain = "بیک اپ جاری رکھنے کے لیے گوگل دوبارہ سائن ان مانگ رہا ہے۔",
+        backingUp = "بیک اپ ہو رہا ہے…",
+        backedUpTo = "بیک اپ محفوظ ہے:",
+        lastBackup = "آخری بیک اپ",
+        restoredDays = "دن بیک اپ سے واپس آ گئے",
+        backupNow = "ابھی بیک اپ کریں",
+        turnOff = "بند کریں (بیک اپ رہنے دیں)",
+        turnOffDelete = "بند کریں اور بیک اپ مٹا دیں",
+        noThanks = "نہیں، شکریہ",
+        notNow = "ابھی نہیں",
+        nudgeText = "آپ کی اسٹریک صرف اس فون میں ہے۔",
+        nudgeAction = "محفوظ کریں",
     )
 
     fun of(lang: Lang): Str = if (lang == Lang.UR) UR else EN
@@ -608,6 +709,13 @@ object Strings {
         s.downloadUpdate, s.later, s.currentVersion,
         s.installUpdate, s.tapToInstall, s.downloading, s.installing,
         s.allowInstalls, s.allowInstallsHelp, s.updateFailed, s.downloadInBrowser,
+        s.backupSection, s.backupTitle, s.backupIntro, s.backupOff,
+        s.androidBackupTitle, s.androidBackupOn, s.androidBackupOff,
+        s.androidBackupUnknown, s.androidBackupHelp, s.openSettings,
+        s.driveTitle, s.driveHelp, s.driveUnavailable, s.signInGoogle,
+        s.signInFailed, s.signInAgain, s.backingUp, s.backedUpTo, s.lastBackup,
+        s.restoredDays, s.backupNow, s.turnOff, s.turnOffDelete, s.noThanks,
+        s.notNow, s.nudgeText, s.nudgeAction,
     )
 
     /** Prayer name in the chosen language. */

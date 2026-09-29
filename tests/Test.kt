@@ -585,6 +585,37 @@ fun main() {
     check("the settings do not disturb the version check",
         UpdateCheck.check(6, withCfg).action == UpdateAction.OPTIONAL)
 
+    println("\n-- streak backup --")
+    val all5 = Tracker.FARD.toSet()
+    val phone = mapOf("2026-09-27" to all5, "2026-09-28" to setOf("Fajr"))
+    val round = Backup.parse(Backup.serialize(phone))
+    check("a backup reads back exactly what was written", round == phone, round)
+    check("an unmarked day survives the round trip",
+        Backup.parse(Backup.serialize(mapOf("2026-09-29" to emptySet())))
+            ?.get("2026-09-29") == emptySet<String>())
+    check("a file that is not ours is refused, never read as empty",
+        Backup.parse("""{"days":{}}""") == null && Backup.parse(null) == null)
+    check("unknown prayer names are dropped",
+        Backup.parse("""{"app":"NamazTimings","days":{"2026-09-01":"Fajr,Hacked"}}""")
+            ?.get("2026-09-01") == setOf("Fajr"))
+
+    // A reinstalled phone: nothing locally, a year in the backup.
+    val drive = mapOf("2026-09-27" to all5, "2026-09-28" to all5)
+    check("a reinstall gets its history back",
+        Backup.merge(emptyMap(), drive, emptySet()) == drive)
+    // The phone's own change since the last backup wins, even an unmarking.
+    val unmarked = Backup.merge(
+        mapOf("2026-09-28" to setOf("Fajr")), drive, setOf("2026-09-28"))
+    check("a change made on the phone beats the backup",
+        unmarked["2026-09-28"] == setOf("Fajr"), unmarked)
+    check("days the phone did not touch still come from the backup",
+        unmarked["2026-09-27"] == all5, unmarked)
+    // Days from before backup was ever switched on are not lost.
+    val old = Backup.merge(mapOf("2025-01-01" to all5), emptyMap(), emptySet())
+    check("days only on the phone are kept", old["2025-01-01"] == all5, old)
+    check("counts only days with something marked",
+        Backup.markedDays(mapOf("a" to all5, "b" to emptySet())) == 1)
+
     println("\n-- clock formatting --")
     check("midnight is 12:00 AM", Clock(0).format12() == "12:00 AM", Clock(0).format12())
     check("noon is 12:00 PM", Clock(720).format12() == "12:00 PM", Clock(720).format12())

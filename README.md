@@ -211,9 +211,17 @@ Four permissions, and the app is useful even if you refuse three of them.
 
 **There is no account, no analytics company, no advertising, and no server
 holding your data.** Your city, your language, your streaks and every prayer
-you have marked are stored on your phone and nowhere else. None of it is ever
-sent anywhere, and there is no way for anyone — including whoever built this —
-to read it.
+you have marked are stored on your phone. None of it is sent anywhere unless
+you choose to back it up, and there is no way for anyone — including whoever
+built this — to read it.
+
+**Optional streak backup.** If you sign in with Google (Settings → Streak
+backup), your marked prayers are copied to a hidden app folder in *your own*
+Google Drive, so they survive an uninstall or a new phone. Only this app can
+open that folder; the developer cannot see it, and nothing passes through any
+server but Google's. It is off unless you turn it on, and "Turn off and delete
+the backup" removes it again. The app also shows whether Android's own Google
+backup is on for your phone, where the phone allows it to check.
 
 Two small things do leave the phone, both once a day, and both are listed here
 rather than buried:
@@ -356,6 +364,7 @@ app/src/main/java/io/frontierlabs/namaz/
   BootReceiver.kt       re-arm after reboot, clock change or reinstall
   UpdateReceiver.kt     the daily new-version check
   SelfUpdate.kt         download and install updates in-app
+  DriveBackup.kt        optional streak backup to the user's Google Drive
 tests/Test.kt           272 tests, runnable on a plain JVM
 ```
 
@@ -393,5 +402,24 @@ that every phone picks up the next time it checks. Every field is optional:
 
 Only data can travel this way. A code fix still needs a new version, but that
 now installs itself as described under *Updates*.
+
+**Setting up the Google Drive backup (once).** Google only lets an app it
+knows sign people in. Until this is done, "Sign in with Google" just shows
+"Couldn't reach Google" and nothing else is affected.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create a
+   project and enable the **Google Drive API** for it.
+2. Set up the **OAuth consent screen** (Google Auth Platform): type
+   *External*, app name, your email. Under *Data access*, add the scope
+   `https://www.googleapis.com/auth/drive.appdata`.
+3. Under *Clients*, create an OAuth client of type **Android**: package name
+   `io.frontierlabs.namaz`, and the **SHA-1** of the release key. The build
+   summary on GitHub Actions prints it under *Signature*.
+4. Under *Audience*, **publish the app** (move it out of *Testing*). In Testing
+   mode only listed test users can sign in, and their access expires after 7
+   days.
+
+No key or client ID goes into the code: Google recognises the app by its
+package name and signature.
 
 </details>
