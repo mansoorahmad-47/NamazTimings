@@ -2271,22 +2271,39 @@ fun UpdateDialog(decision: UpdateDecision, onDismiss: () -> Unit) {
 
 /**
  * Start Google's sign-in for Drive backup. Returns the function to call from
- * a button. [onToken] gets an access token; [onFail] a real failure. Backing
- * out of Google's screen is neither -- it is just the user saying no.
+ * a button. [onToken] gets an access token. [onFail] gets Google's status
+ * code when there is one (10 = Google does not recognise this app: package
+ * name or SHA-1 not registered; 7 = no connection), or null when Google's
+ * screen closed without saying why.
+ *
+ * Only an explicit "cancelled" from Google is treated as the user backing
+ * out. Everything else is reported, because a sign-in that silently vanishes
+ * after picking an account is exactly what a setup mistake looks like.
  */
 @Composable
-fun rememberDriveSignIn(onToken: (String) -> Unit, onFail: () -> Unit): () -> Unit {
+fun rememberDriveSignIn(onToken: (String) -> Unit, onFail: (Int?) -> Unit): () -> Unit {
     val context = LocalContext.current
+    fun codeOf(e: Throwable) =
+        (e as? com.google.android.gms.common.api.ApiException)?.statusCode
+
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { res ->
-        if (res.resultCode != android.app.Activity.RESULT_OK) return@rememberLauncherForActivityResult
         val data = res.data
-        val token = if (data == null) null else runCatching {
-            Identity.getAuthorizationClient(context)
-                .getAuthorizationResultFromIntent(data).accessToken
-        }.getOrNull()
-        if (token != null) onToken(token) else onFail()
+        if (data == null) {
+            // Closed with nothing to read: either the user backed out or
+            // Google gave up. Say so either way; it costs one line of text.
+            onFail(null)
+            return@rememberLauncherForActivityResult
+        }
+        runCatching {
+            Identity.getAuthorizationClient(context).getAuthorizationResultFromIntent(data)
+        }.onSuccess { r ->
+            r.accessToken?.let(onToken) ?: onFail(null)
+        }.onFailure { e ->
+            val code = codeOf(e)
+            if (code != com.google.android.gms.common.api.CommonStatusCodes.CANCELED) onFail(code)
+        }
     }
     return {
         runCatching {
@@ -2296,13 +2313,13 @@ fun rememberDriveSignIn(onToken: (String) -> Unit, onFail: () -> Unit): () -> Un
                     if (r.hasResolution() && pi != null) {
                         runCatching {
                             launcher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
-                        }.onFailure { onFail() }
+                        }.onFailure { onFail(null) }
                     } else {
-                        r.accessToken?.let(onToken) ?: onFail()
+                        r.accessToken?.let(onToken) ?: onFail(null)
                     }
                 }
-                .addOnFailureListener { onFail() }
-        }.onFailure { onFail() }
+                .addOnFailureListener { e -> onFail(codeOf(e)) }
+        }.onFailure { e -> onFail(codeOf(e)) }
     }
 }
 
@@ -2337,6 +2354,7 @@ fun BackupDialog(
     var on by remember { mutableStateOf(Prefs.driveBackupOn(prefs)) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var messageIsError by remember { mutableStateOf(false) }
     var last by remember { mutableLongStateOf(Prefs.lastBackup(prefs)) }
     var account by remember { mutableStateOf(Prefs.backupAccount(prefs)) }
     var needsSignIn by remember { mutableStateOf(Prefs.backupNeedsSignIn(prefs)) }
@@ -2351,9 +2369,13 @@ fun BackupDialog(
             account = Prefs.backupAccount(prefs)
             message = if (outcome.restoredDays > 0)
                 "${outcome.restoredDays} ${S.restoredDays}" else null
+            messageIsError = false
             if (outcome.restoredDays > 0) onRestored()
         } else {
-            message = S.signInFailed
+            // Signed in, but Drive said no. The detail ("list failed: 403")
+            // is what tells the developer the Drive API is not enabled.
+            message = S.backupSaveFailed + (outcome.detail?.let { " ($it)" } ?: "")
+            messageIsError = true
         }
     }
 
@@ -2368,7 +2390,17 @@ fun BackupDialog(
                 afterSync(outcome)
             }
         },
-        onFail = { busy = false; message = S.signInFailed },
+        onFail = { code ->
+            busy = false
+            messageIsError = true
+            message = when (code) {
+                null -> S.signInNotFinished
+                com.google.android.gms.common.api.CommonStatusCodes.NETWORK_ERROR -> S.signInFailed
+                com.google.android.gms.common.api.CommonStatusCodes.DEVELOPER_ERROR ->
+                    "${S.signInSetup} (${S.errorCode} 10)"
+                else -> "${S.signInError} (${S.errorCode} $code)"
+            }
+        },
     )
 
     fun turnOff(delete: Boolean) {
@@ -2480,7 +2512,7 @@ fun BackupDialog(
                 message?.let {
                     Spacer(Modifier.height(8.dp))
                     Text(it, fontSize = 12.sp,
-                        color = if (it == S.signInFailed) AMBER else GREEN)
+                        color = if (messageIsError) AMBER else GREEN)
                 }
             }
         },

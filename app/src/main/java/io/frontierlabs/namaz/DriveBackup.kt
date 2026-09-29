@@ -84,7 +84,7 @@ object DriveBackup {
     }.getOrNull()
 
     /** What a sync did, for the screen. */
-    data class Outcome(val ok: Boolean, val restoredDays: Int = 0)
+    data class Outcome(val ok: Boolean, val restoredDays: Int = 0, val detail: String? = null)
 
     /**
      * Bring the phone and the backup into line: download, merge (see
@@ -116,7 +116,7 @@ object DriveBackup {
         if (Prefs.backupAccount(prefs) == null) Prefs.setBackupAccount(prefs, email(token))
         if (restored > 0) runCatching { NamazWidget.refresh(context) }
         Outcome(true, restored)
-    }.getOrDefault(Outcome(false))
+    }.getOrElse { Outcome(false, detail = it.message) }
 
     /** Remove the backup from Drive entirely, for someone switching it off. */
     fun deleteBackup(token: String): Boolean = runCatching {
