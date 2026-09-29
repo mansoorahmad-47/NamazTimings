@@ -1,7 +1,7 @@
 {
-  "latestVersionCode": 8,
-  "latestVersionName": "1.7",
+  "latestVersionCode": 9,
+  "latestVersionName": "1.8",
   "minSupportedVersionCode": 0,
-  "downloadUrl": "https://github.com/mansoorahmad-47/NamazTimings/releases/download/v1.7/NamazTimings.apk",
-  "notes": "Qibla through internet for mobiles having no compass, timer converted to real time, and Testing Auto Update option"
+  "downloadUrl": "https://github.com/mansoorahmad-47/NamazTimings/releases/download/v1.8/NamazTimings.apk",
+  "notes": "Google Login for Streaks Backup"
 }
