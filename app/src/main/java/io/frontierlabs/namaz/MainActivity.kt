@@ -2393,6 +2393,14 @@ fun BackupDialog(
         onFail = { code, detail ->
             busy = false
             messageIsError = true
+            // "Unregistered" (and error 10) both mean this package + SHA-1
+            // is not on an Android OAuth client. Printing the real values
+            // turns a guessing game into a copy and paste.
+            val unregistered = code == com.google.android.gms.common.api.CommonStatusCodes.DEVELOPER_ERROR ||
+                detail?.contains("UNREGISTERED", ignoreCase = true) == true
+            val identity = if (unregistered)
+                "\n\nPackage: ${context.packageName}\nSHA-1: ${DriveBackup.signingSha1(context) ?: "?"}"
+            else ""
             message = when (code) {
                 null -> S.signInNotFinished
                 com.google.android.gms.common.api.CommonStatusCodes.NETWORK_ERROR -> S.signInFailed
@@ -2402,7 +2410,7 @@ fun BackupDialog(
                 // which the bare code does not.
                 else -> "${S.signInError} (${S.errorCode} $code)" +
                     (detail?.let { "\n$it" } ?: "")
-            }
+            } + identity
         },
     )
 
@@ -2514,8 +2522,11 @@ fun BackupDialog(
                 }
                 message?.let {
                     Spacer(Modifier.height(8.dp))
-                    Text(it, fontSize = 12.sp,
-                        color = if (messageIsError) AMBER else GREEN)
+                    // Selectable, so an error's SHA-1 can be copied, not retyped.
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(it, fontSize = 12.sp,
+                            color = if (messageIsError) AMBER else GREEN)
+                    }
                 }
             }
         },

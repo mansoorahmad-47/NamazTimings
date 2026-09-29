@@ -54,6 +54,29 @@ object DriveBackup {
             .setRequestedScopes(listOf(Scope(SCOPE)))
             .build()
 
+    /**
+     * The SHA-1 of the certificate this installed copy is signed with, as
+     * Google Cloud wants it ("AB:CD:..."). Shown when sign-in fails with
+     * "unregistered", because that error means exactly this value (with the
+     * package name) is not on an Android OAuth client -- and reading it off
+     * the phone beats guessing which key signed which build.
+     */
+    @Suppress("DEPRECATION")
+    fun signingSha1(context: Context): String? = runCatching {
+        val pm = context.packageManager
+        val cert: ByteArray = if (android.os.Build.VERSION.SDK_INT >= 28) {
+            val info = pm.getPackageInfo(
+                context.packageName, android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES)
+            info.signingInfo!!.apkContentsSigners.first().toByteArray()
+        } else {
+            val info = pm.getPackageInfo(
+                context.packageName, android.content.pm.PackageManager.GET_SIGNATURES)
+            info.signatures!!.first().toByteArray()
+        }
+        java.security.MessageDigest.getInstance("SHA-1").digest(cert)
+            .joinToString(":") { "%02X".format(it) }
+    }.getOrNull()
+
     /** Phones without Google Play services cannot sign in with Google at all. */
     fun available(context: Context): Boolean = runCatching {
         GoogleApiAvailability.getInstance()
